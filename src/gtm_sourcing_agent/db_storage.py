@@ -31,7 +31,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from . import db
-from .models_orm import ActivityLog, CandidateEvaluation, CanonicalCandidate, Job, JobSection, Task
+from .models_orm import ActivityLog, CandidateEvaluation, CanonicalCandidate, Job, JobSection, Task, User
 
 logger = logging.getLogger(__name__)
 
@@ -596,6 +596,43 @@ def log_activity(
             "action": entry.action, "detail": entry.detail, "candidate_id": entry.candidate_id,
             "created_at": entry.created_at,
         }
+
+
+def team_usage() -> dict[str, Any]:
+    """Per-recruiter activity across every job — answers "is every
+    recruiter actually using this," not just one recruiter's own view of
+    their own work. Deterministic counting from User + ActivityLog + Job,
+    same discipline as analytics_overview(): no model call, no
+    interpretation, just what's actually in the log."""
+    with db.get_session() as session:
+        users = session.scalars(select(User).order_by(User.created_at)).all()
+        logs = session.scalars(select(ActivityLog)).all()
+        jobs = session.scalars(select(Job)).all()
+
+        logs_by_user: dict[str, list[ActivityLog]] = {}
+        for log in logs:
+            logs_by_user.setdefault(log.user_email, []).append(log)
+
+        jobs_owned_by_user: dict[str, int] = {}
+        for job in jobs:
+            if job.owner_email:
+                jobs_owned_by_user[job.owner_email] = jobs_owned_by_user.get(job.owner_email, 0) + 1
+
+        recruiters = []
+        for u in users:
+            user_logs = logs_by_user.get(u.email, [])
+            candidates_added = sum(1 for log in user_logs if log.action.startswith("added candidate"))
+            last_active = max((log.created_at for log in user_logs), default=None)
+            recruiters.append({
+                "email": u.email,
+                "joined_at": u.created_at,
+                "jobs_owned": jobs_owned_by_user.get(u.email, 0),
+                "candidates_added": candidates_added,
+                "total_actions": len(user_logs),
+                "last_active": last_active,
+            })
+
+        return {"total_users": len(users), "recruiters": recruiters}
 
 
 def list_activity(role_id: str, limit: int = 50) -> list[dict[str, Any]]:

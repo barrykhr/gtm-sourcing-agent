@@ -360,6 +360,21 @@ def test_analytics_overview_route(isolated_db, fake_generate):
     assert overview["decisions_pending"] == 1
 
 
+def test_team_usage_route(isolated_db, fake_generate):
+    from gtm_sourcing_agent.models import Candidate
+
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    fake_generate.queue.append(Candidate(candidate_id="cand-1", name="Jane Doe"))
+    client.post("/jobs/ae-role/candidates", json={"source_text": "resume", "role_family": "sales"})
+
+    usage = client.get("/team/usage").json()
+    assert usage["total_users"] == 1
+    recruiter = usage["recruiters"][0]
+    assert recruiter["email"] == "recruiter@example.com"
+    assert recruiter["jobs_owned"] == 1
+    assert recruiter["total_actions"] >= 1
+
+
 def test_funnel_update_rejects_unknown_stage(isolated_db):
     client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
     resp = client.post("/jobs/ae-role/funnel/cand-1", json={"stage": "not_a_stage"})

@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Briefcase, BookOpen, Users } from "lucide-react";
+import { Briefcase, BookOpen, Users, UsersRound } from "lucide-react";
 import { CommandPalette } from "@/components/CommandPalette";
 import { AccountMenu } from "@/components/AccountMenu";
 
 const LINKS = [
   { href: "/", label: "Jobs", icon: Briefcase },
   { href: "/candidates", label: "Candidates", icon: Users },
+  { href: "/team", label: "Team", icon: UsersRound },
   { href: "/guide", label: "Guide", icon: BookOpen },
 ] as const;
 

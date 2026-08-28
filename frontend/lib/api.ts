@@ -365,6 +365,24 @@ export type AnalyticsOverview = {
 
 export const getAnalyticsOverview = () => get<AnalyticsOverview>("/analytics/overview");
 
+// ── team usage ───────────────────────────────────────────────────────────
+// Every recruiter's activity across the shared workspace — "is everyone
+// actually using this," not one recruiter's own view of their own work.
+// Visible to any authenticated user; there's no admin/recruiter
+// distinction anywhere else in the app either (see api.py's /team/usage).
+
+export type RecruiterUsage = {
+  email: string;
+  joined_at: string;
+  jobs_owned: number;
+  candidates_added: number;
+  total_actions: number;
+  last_active: string | null;
+};
+export type TeamUsage = { total_users: number; recruiters: RecruiterUsage[] };
+
+export const getTeamUsage = () => get<TeamUsage>("/team/usage");
+
 // Two lists a recruiter would otherwise only notice by checking every
 // job's Pipeline tab themselves (Phase 8).
 export type AttentionItem = {

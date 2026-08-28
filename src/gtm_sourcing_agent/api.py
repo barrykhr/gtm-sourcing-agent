@@ -411,6 +411,14 @@ def analytics_attention() -> dict[str, Any]:
     return db_storage.attention_needed()
 
 
+@app.get("/team/usage")
+def team_usage() -> dict[str, Any]:
+    """Every authenticated user shares one workspace (Phase 8), so this
+    is visible to any recruiter, not gated to an admin role — there is no
+    admin/recruiter distinction anywhere else in the app either."""
+    return db_storage.team_usage()
+
+
 # ── background task runners (Phase 4) ───────────────────────────────────
 # Every LLM-touching stage call is registered here and executed by
 # task_queue.py's worker thread instead of inline in a request handler —

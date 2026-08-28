@@ -120,6 +120,38 @@ def test_analytics_overview_empty_state(isolated_db):
     assert overview["decision_breakdown"] == {}
 
 
+def test_team_usage_counts_per_recruiter(isolated_db):
+    from gtm_sourcing_agent import auth
+
+    auth.create_user("priya@example.com", "password123")
+    auth.create_user("marcus@example.com", "password123")
+
+    db_storage.create_job("job-a", title="A", owner_email="priya@example.com")
+    db_storage.create_job("job-b", title="B", owner_email="priya@example.com")
+    db_storage.log_activity("job-a", "priya@example.com", "added candidate (pasted text)")
+    db_storage.log_activity("job-a", "priya@example.com", "added candidate (resume upload)")
+    db_storage.log_activity("job-a", "priya@example.com", "requested prioritization", candidate_id="cand-1")
+    db_storage.log_activity("job-b", "marcus@example.com", "requested calibration")
+
+    usage = db_storage.team_usage()
+
+    assert usage["total_users"] == 2
+    by_email = {r["email"]: r for r in usage["recruiters"]}
+    assert by_email["priya@example.com"]["jobs_owned"] == 2
+    assert by_email["priya@example.com"]["candidates_added"] == 2
+    assert by_email["priya@example.com"]["total_actions"] == 3
+    assert by_email["priya@example.com"]["last_active"] is not None
+    assert by_email["marcus@example.com"]["jobs_owned"] == 0
+    assert by_email["marcus@example.com"]["candidates_added"] == 0
+    assert by_email["marcus@example.com"]["total_actions"] == 1
+
+
+def test_team_usage_empty_state(isolated_db):
+    usage = db_storage.team_usage()
+    assert usage["total_users"] == 0
+    assert usage["recruiters"] == []
+
+
 def test_attention_needed_flags_stalled_and_scheduled(isolated_db):
     from datetime import UTC, datetime, timedelta
 
