@@ -680,9 +680,12 @@ def log_activity(
 def team_usage() -> dict[str, Any]:
     """Per-recruiter activity across every job — answers "is every
     recruiter actually using this," not just one recruiter's own view of
-    their own work. Deterministic counting from User + ActivityLog + Job,
-    same discipline as analytics_overview(): no model call, no
-    interpretation, just what's actually in the log."""
+    their own work. Also answers a different question, "who's overloaded
+    right now" — open_jobs/active_candidates are current load, distinct
+    from the lifetime totals (jobs_owned, candidates_added) alongside
+    them. Deterministic counting from User + ActivityLog + Job +
+    CandidateEvaluation, same discipline as analytics_overview(): no
+    model call, no interpretation, just what's actually in the log."""
     with db.get_session() as session:
         users = session.scalars(select(User).order_by(User.created_at)).all()
         logs = session.scalars(select(ActivityLog)).all()
@@ -694,26 +697,39 @@ def team_usage() -> dict[str, Any]:
             logs_by_user.setdefault(log.user_email, []).append(log)
 
         jobs_owned_by_user: dict[str, int] = {}
+        open_jobs_by_user: dict[str, int] = {}
         owner_by_role: dict[str, str] = {}
+        job_by_role: dict[str, Job] = {}
         for job in jobs:
+            job_by_role[job.role_id] = job
             if job.owner_email:
                 jobs_owned_by_user[job.owner_email] = jobs_owned_by_user.get(job.owner_email, 0) + 1
                 owner_by_role[job.role_id] = job.owner_email
+                if job.lifecycle_status == "OPEN":
+                    open_jobs_by_user[job.owner_email] = open_jobs_by_user.get(job.owner_email, 0) + 1
 
         # Placements/fees (Batch B) attribute to whoever owns the job the
         # placement happened on — the closest thing to "whose deal was
         # this" without a separate assignment concept.
         placements_by_user: dict[str, int] = {}
         fees_by_user: dict[str, float] = {}
+        # Current load (Batch B), distinct from the lifetime totals above:
+        # candidates still live in one of this recruiter's OPEN searches —
+        # not yet placed, not passed on. A closed/on-hold job or a
+        # candidate already resolved one way or the other isn't work
+        # still sitting on their plate.
+        active_candidates_by_user: dict[str, int] = {}
         for ev in evaluations:
             p = ev.prioritization
-            if not p or not p.get("placed"):
-                continue
             owner = owner_by_role.get(ev.role_id)
-            if not owner:
+            job = job_by_role.get(ev.role_id)
+            if p and p.get("placed"):
+                if owner:
+                    placements_by_user[owner] = placements_by_user.get(owner, 0) + 1
+                    fees_by_user[owner] = fees_by_user.get(owner, 0.0) + (p.get("placement_fee") or 0.0)
                 continue
-            placements_by_user[owner] = placements_by_user.get(owner, 0) + 1
-            fees_by_user[owner] = fees_by_user.get(owner, 0.0) + (p.get("placement_fee") or 0.0)
+            if owner and job and job.lifecycle_status == "OPEN" and (not p or p.get("recruiter_decision") != "pass for now"):
+                active_candidates_by_user[owner] = active_candidates_by_user.get(owner, 0) + 1
 
         recruiters = []
         for u in users:
@@ -729,6 +745,8 @@ def team_usage() -> dict[str, Any]:
                 "last_active": last_active,
                 "placements": placements_by_user.get(u.email, 0),
                 "placement_fees": fees_by_user.get(u.email, 0.0),
+                "open_jobs": open_jobs_by_user.get(u.email, 0),
+                "active_candidates": active_candidates_by_user.get(u.email, 0),
             })
 
         return {"total_users": len(users), "recruiters": recruiters}

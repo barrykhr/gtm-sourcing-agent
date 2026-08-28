@@ -465,6 +465,8 @@ export type RecruiterUsage = {
   last_active: string | null;
   placements: number;
   placement_fees: number;
+  open_jobs: number;
+  active_candidates: number;
 };
 export type TeamUsage = { total_users: number; recruiters: RecruiterUsage[] };
 

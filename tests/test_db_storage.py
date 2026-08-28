@@ -167,6 +167,36 @@ def test_team_usage_counts_per_recruiter(isolated_db):
     assert by_email["priya@example.com"]["placement_fees"] == 0.0
 
 
+def test_team_usage_current_load_counts_open_jobs_and_active_candidates(isolated_db):
+    from gtm_sourcing_agent import auth
+
+    auth.create_user("priya@example.com", "password123")
+    db_storage.create_job("job-open", title="Open Role", owner_email="priya@example.com")
+    db_storage.create_job("job-filled", title="Filled Role", owner_email="priya@example.com")
+    db_storage.set_job_lifecycle("job-filled", "FILLED")
+
+    # active — no decision yet, in the open job
+    db_storage.merge_candidate("job-open", "cand-1", {"name": "Jane"})
+    # passed on — should not count as active load
+    db_storage.merge_candidate("job-open", "cand-2", {"name": "Marcus"})
+    db_storage.merge_prioritization(
+        "job-open", "cand-2", {"candidate_id": "cand-2", "tier": "C", "recruiter_decision": "pass for now"}
+    )
+    # placed — resolved, should not count as active load either
+    db_storage.merge_candidate("job-open", "cand-3", {"name": "Elena"})
+    db_storage.merge_prioritization(
+        "job-open", "cand-3", {"candidate_id": "cand-3", "tier": "A", "placed": True, "placement_fee": 10000.0}
+    )
+    # in a FILLED job — the job itself is no longer open, so not active load
+    db_storage.merge_candidate("job-filled", "cand-4", {"name": "Sam"})
+
+    usage = db_storage.team_usage()
+
+    by_email = {r["email"]: r for r in usage["recruiters"]}
+    assert by_email["priya@example.com"]["open_jobs"] == 1
+    assert by_email["priya@example.com"]["active_candidates"] == 1
+
+
 def test_team_usage_attributes_placements_to_job_owner(isolated_db):
     from gtm_sourcing_agent import auth
 

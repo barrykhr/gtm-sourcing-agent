@@ -62,45 +62,80 @@ export default function TeamUsagePage() {
           {usage.recruiters.length === 0 ? (
             <p className="text-sm text-zinc-500">No accounts yet.</p>
           ) : (
-            <div className="overflow-x-auto rounded-lg border border-zinc-200 bg-surface shadow-[var(--shadow-sm)] dark:border-zinc-800">
-              <table className="w-full min-w-[640px] border-collapse text-sm">
-                <thead>
-                  <tr className="border-b border-zinc-200 text-left text-xs uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
-                    <th className="px-4 py-3 font-medium">Recruiter</th>
-                    <th className="px-4 py-3 font-medium">Jobs owned</th>
-                    <th className="px-4 py-3 font-medium">Candidates added</th>
-                    <th className="px-4 py-3 font-medium">Total actions</th>
-                    <th className="px-4 py-3 font-medium">Placements</th>
-                    <th className="px-4 py-3 font-medium">Fees</th>
-                    <th className="px-4 py-3 font-medium">Last active</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {usage.recruiters.map((r) => (
-                    <tr key={r.email} className="border-b border-zinc-100 last:border-0 dark:border-zinc-900">
-                      <td className="px-4 py-3">
-                        <p className="font-medium">{r.email}</p>
-                        <p className="text-xs text-zinc-500">joined {new Date(r.joined_at).toLocaleDateString()}</p>
-                      </td>
-                      <td className="px-4 py-3 tabular-nums">{r.jobs_owned}</td>
-                      <td className="px-4 py-3 tabular-nums">{r.candidates_added}</td>
-                      <td className="px-4 py-3 tabular-nums">{r.total_actions}</td>
-                      <td className="px-4 py-3 tabular-nums">{r.placements}</td>
-                      <td className="px-4 py-3 tabular-nums">
-                        {r.placement_fees > 0
-                          ? r.placement_fees.toLocaleString(undefined, {
-                              style: "currency", currency: "USD", maximumFractionDigits: 0,
-                            })
-                          : "—"}
-                      </td>
-                      <td className="px-4 py-3 text-zinc-500">
-                        {r.last_active ? new Date(r.last_active).toLocaleString() : "never"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <>
+              <div>
+                <h2 className="text-sm font-semibold text-zinc-500">Current load</h2>
+                <p className="mt-0.5 mb-2 text-xs text-zinc-400">
+                  Right now, not lifetime — open searches and candidates still active in them.
+                </p>
+                <div className="overflow-x-auto rounded-lg border border-zinc-200 bg-surface shadow-[var(--shadow-sm)] dark:border-zinc-800">
+                  <table className="w-full min-w-[420px] border-collapse text-sm">
+                    <thead>
+                      <tr className="border-b border-zinc-200 text-left text-xs uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
+                        <th className="px-4 py-3 font-medium">Recruiter</th>
+                        <th className="px-4 py-3 font-medium">Open jobs</th>
+                        <th className="px-4 py-3 font-medium">Active candidates</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[...usage.recruiters]
+                        .sort((a, b) => b.active_candidates - a.active_candidates)
+                        .map((r) => (
+                          <tr key={r.email} className="border-b border-zinc-100 last:border-0 dark:border-zinc-900">
+                            <td className="px-4 py-3 font-medium">{r.email}</td>
+                            <td className="px-4 py-3 tabular-nums">{r.open_jobs}</td>
+                            <td className="px-4 py-3 tabular-nums">{r.active_candidates}</td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div>
+                <h2 className="text-sm font-semibold text-zinc-500">Activity &amp; results</h2>
+                <p className="mt-0.5 mb-2 text-xs text-zinc-400">Lifetime totals across every job, open or closed.</p>
+                <div className="overflow-x-auto rounded-lg border border-zinc-200 bg-surface shadow-[var(--shadow-sm)] dark:border-zinc-800">
+                  <table className="w-full min-w-[640px] border-collapse text-sm">
+                    <thead>
+                      <tr className="border-b border-zinc-200 text-left text-xs uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
+                        <th className="px-4 py-3 font-medium">Recruiter</th>
+                        <th className="px-4 py-3 font-medium">Jobs owned</th>
+                        <th className="px-4 py-3 font-medium">Candidates added</th>
+                        <th className="px-4 py-3 font-medium">Total actions</th>
+                        <th className="px-4 py-3 font-medium">Placements</th>
+                        <th className="px-4 py-3 font-medium">Fees</th>
+                        <th className="px-4 py-3 font-medium">Last active</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {usage.recruiters.map((r) => (
+                        <tr key={r.email} className="border-b border-zinc-100 last:border-0 dark:border-zinc-900">
+                          <td className="px-4 py-3">
+                            <p className="font-medium">{r.email}</p>
+                            <p className="text-xs text-zinc-500">joined {new Date(r.joined_at).toLocaleDateString()}</p>
+                          </td>
+                          <td className="px-4 py-3 tabular-nums">{r.jobs_owned}</td>
+                          <td className="px-4 py-3 tabular-nums">{r.candidates_added}</td>
+                          <td className="px-4 py-3 tabular-nums">{r.total_actions}</td>
+                          <td className="px-4 py-3 tabular-nums">{r.placements}</td>
+                          <td className="px-4 py-3 tabular-nums">
+                            {r.placement_fees > 0
+                              ? r.placement_fees.toLocaleString(undefined, {
+                                  style: "currency", currency: "USD", maximumFractionDigits: 0,
+                                })
+                              : "—"}
+                          </td>
+                          <td className="px-4 py-3 text-zinc-500">
+                            {r.last_active ? new Date(r.last_active).toLocaleString() : "never"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
           )}
 
           <p className="text-xs text-zinc-400">
