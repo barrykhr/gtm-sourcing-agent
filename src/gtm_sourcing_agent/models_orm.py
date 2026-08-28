@@ -31,6 +31,16 @@ class Job(Base):
     role_id: Mapped[str] = mapped_column(String, primary_key=True)
     title: Mapped[str | None] = mapped_column(String, default=None)
     role_family: Mapped[str | None] = mapped_column(String, default=None)
+    # Which external client this role is for (Batch B) — a consultancy
+    # runs many clients' roles at once through one shared workspace, and
+    # nothing before this let you tell them apart. Optional: an internal
+    # recruiting team has no client to name.
+    client_name: Mapped[str | None] = mapped_column(String, default=None)
+    # Client-facing share link (Batch B) — a random token, unset by
+    # default; set only when a recruiter explicitly generates a link, and
+    # unset again on revoke. Never the role_id itself — a rotatable,
+    # revocable token so a leaked link doesn't require renaming the role.
+    share_token: Mapped[str | None] = mapped_column(String, unique=True, default=None)
     # Lifecycle (Phase 10, docs/product-plan.md) — named lifecycle_status,
     # not status, so it's never confused with pipeline.status()'s
     # per-stage-done dict or Task.status's pending/running/succeeded/

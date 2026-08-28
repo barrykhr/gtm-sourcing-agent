@@ -307,6 +307,87 @@ def test_set_job_owner_raises_for_missing_job(isolated_db):
         db_storage.set_job_owner("does-not-exist", "r1@example.com")
 
 
+# ── client tagging (Batch B) ────────────────────────────────────────────
+
+
+def test_create_job_sets_client(isolated_db):
+    job = db_storage.create_job("acme-ae-2026", title="Acme AE", client_name="Acme Robotics")
+    assert job["client_name"] == "Acme Robotics"
+
+
+def test_create_job_defaults_client_to_none(isolated_db):
+    job = db_storage.create_job("acme-ae-2026", title="Acme AE")
+    assert job["client_name"] is None
+
+
+def test_set_job_client_reassigns(isolated_db):
+    db_storage.create_job("acme-ae-2026", title="Acme AE", client_name="Acme Robotics")
+    result = db_storage.set_job_client("acme-ae-2026", "Globex Corp")
+    assert result["client_name"] == "Globex Corp"
+
+
+def test_set_job_client_can_clear(isolated_db):
+    db_storage.create_job("acme-ae-2026", title="Acme AE", client_name="Acme Robotics")
+    result = db_storage.set_job_client("acme-ae-2026", None)
+    assert result["client_name"] is None
+
+
+def test_set_job_client_raises_for_missing_job(isolated_db):
+    with pytest.raises(ValueError, match="not found"):
+        db_storage.set_job_client("does-not-exist", "Acme Robotics")
+
+
+# ── client-facing share links (Batch B) ─────────────────────────────────
+
+
+def test_generate_share_link_sets_a_token(isolated_db):
+    db_storage.create_job("acme-ae-2026", title="Acme AE")
+    job = db_storage.generate_share_link("acme-ae-2026")
+    assert job["share_token"]
+
+
+def test_generate_share_link_rotates_on_each_call(isolated_db):
+    db_storage.create_job("acme-ae-2026", title="Acme AE")
+    first = db_storage.generate_share_link("acme-ae-2026")["share_token"]
+    second = db_storage.generate_share_link("acme-ae-2026")["share_token"]
+    assert first != second
+
+
+def test_revoke_share_link_clears_the_token(isolated_db):
+    db_storage.create_job("acme-ae-2026", title="Acme AE")
+    db_storage.generate_share_link("acme-ae-2026")
+    job = db_storage.revoke_share_link("acme-ae-2026")
+    assert job["share_token"] is None
+
+
+def test_get_public_role_summary_returns_none_for_unknown_token(isolated_db):
+    assert db_storage.get_public_role_summary("not-a-real-token") is None
+
+
+def test_get_public_role_summary_never_returns_none_after_revoke(isolated_db):
+    db_storage.create_job("acme-ae-2026", title="Acme AE")
+    token = db_storage.generate_share_link("acme-ae-2026")["share_token"]
+    db_storage.revoke_share_link("acme-ae-2026")
+    assert db_storage.get_public_role_summary(token) is None
+
+
+def test_get_public_role_summary_counts_candidates_and_stages(isolated_db):
+    db_storage.create_job("acme-ae-2026", title="Acme AE", client_name="Acme Robotics")
+    token = db_storage.generate_share_link("acme-ae-2026")["share_token"]
+    db_storage.merge_candidate("acme-ae-2026", "cand-1", {"name": "Jane"})
+    db_storage.merge_candidate("acme-ae-2026", "cand-2", {"name": "Marcus"})
+    db_storage.merge_section("acme-ae-2026", "funnel", {
+        "cand-1": {"candidate_id": "cand-1", "current_stage": "CONTACTED"},
+    })
+
+    summary = db_storage.get_public_role_summary(token)
+
+    assert summary["title"] == "Acme AE"
+    assert summary["client_name"] == "Acme Robotics"
+    assert summary["total_candidates"] == 2
+    assert summary["counts_by_stage"] == {"CONTACTED": 1}
+
+
 # ── candidate notes (Phase 10) ──────────────────────────────────────────
 
 

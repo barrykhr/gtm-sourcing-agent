@@ -86,6 +86,8 @@ export type JobSummary = {
   role_id: string;
   title: string;
   role_family: string | null;
+  client_name: string | null;
+  share_token: string | null;
   lifecycle_status: JobLifecycleStatus;
   owner_email: string | null;
   created_at: string;
@@ -155,8 +157,8 @@ export type CanonicalCandidate = {
 
 export const listJobs = () => get<JobSummary[]>("/jobs");
 
-export const createJob = (title: string, role_family = "", role_id?: string) =>
-  post<JobSummary>("/jobs", { title, role_family, role_id });
+export const createJob = (title: string, role_family = "", role_id?: string, client_name = "") =>
+  post<JobSummary>("/jobs", { title, role_family, role_id, client_name });
 
 export const getJob = (roleId: string) => get<JobDetail>(`/jobs/${roleId}`);
 
@@ -187,6 +189,27 @@ export const setJobLifecycle = (roleId: string, lifecycleStatus: JobLifecycleSta
 
 export const setJobOwner = (roleId: string, ownerEmail: string | null) =>
   patch<JobSummary>(`/jobs/${roleId}/owner`, { owner_email: ownerEmail });
+
+export const setJobClient = (roleId: string, clientName: string | null) =>
+  patch<JobSummary>(`/jobs/${roleId}/client`, { client_name: clientName });
+
+// Client-facing share link (Batch B) — a rotatable token behind
+// /public/roles/{token}, the one API surface with no auth requirement.
+export const generateShareLink = (roleId: string) => post<JobSummary>(`/jobs/${roleId}/share-link`);
+export const revokeShareLink = (roleId: string) =>
+  request<JobSummary>(`/jobs/${roleId}/share-link`, { method: "DELETE" });
+
+export type PublicRoleSummary = {
+  role_id: string;
+  title: string;
+  client_name: string | null;
+  lifecycle_status: JobLifecycleStatus;
+  updated_at: string;
+  total_candidates: number;
+  counts_by_stage: Record<string, number>;
+};
+
+export const getPublicRoleSummary = (shareToken: string) => get<PublicRoleSummary>(`/public/roles/${shareToken}`);
 
 // Global search (Phase 10) — jobs by title/role_id, candidates by name.
 export type SearchResult = {

@@ -33,7 +33,10 @@ import {
   runSearchStrategy,
   runTalentMap,
   screenCandidate,
+  generateShareLink,
+  revokeShareLink,
   setCandidateNote,
+  setJobClient,
   setJobLifecycle,
   setJobOwner,
   setRecruiterDecision,
@@ -185,6 +188,9 @@ function JobMetaRow({ job, refresh }: { job: JobDetail; refresh: () => void }) {
   const [busy, setBusy] = useState(false);
   const [editingOwner, setEditingOwner] = useState(false);
   const [ownerDraft, setOwnerDraft] = useState(job.owner_email ?? "");
+  const [editingClient, setEditingClient] = useState(false);
+  const [clientDraft, setClientDraft] = useState(job.client_name ?? "");
+  const [linkCopied, setLinkCopied] = useState(false);
 
   async function changeLifecycle(status: JobLifecycleStatus) {
     setBusy(true);
@@ -207,6 +213,45 @@ function JobMetaRow({ job, refresh }: { job: JobDetail; refresh: () => void }) {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function saveClient() {
+    setBusy(true);
+    try {
+      await setJobClient(job.role_id, clientDraft.trim() || null);
+      refresh();
+      setEditingClient(false);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function generateLink() {
+    setBusy(true);
+    try {
+      await generateShareLink(job.role_id);
+      refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function revokeLink() {
+    setBusy(true);
+    try {
+      await revokeShareLink(job.role_id);
+      refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function copyLink() {
+    const url = `${window.location.origin}/share/${job.share_token}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    });
   }
 
   return (
@@ -245,6 +290,41 @@ function JobMetaRow({ job, refresh }: { job: JobDetail; refresh: () => void }) {
         >
           Owner: {job.owner_email ?? "unassigned"}
           {job.owner_email && job.owner_email === user?.email ? " (you)" : ""}
+        </button>
+      )}
+
+      {editingClient ? (
+        <span className="flex items-center gap-1">
+          <input
+            value={clientDraft}
+            onChange={(e) => setClientDraft(e.target.value)}
+            placeholder="client name"
+            className="rounded border border-zinc-300 px-1.5 py-0.5 text-xs outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-zinc-950"
+          />
+          <button onClick={saveClient} disabled={busy} className="text-indigo-700 hover:underline dark:text-indigo-400">Save</button>
+          <button onClick={() => setEditingClient(false)} className="text-zinc-400 hover:underline">Cancel</button>
+        </span>
+      ) : (
+        <button
+          onClick={() => { setClientDraft(job.client_name ?? ""); setEditingClient(true); }}
+          className="hover:underline"
+        >
+          Client: {job.client_name ?? "none"}
+        </button>
+      )}
+
+      {job.share_token ? (
+        <span className="flex items-center gap-1.5">
+          <button onClick={copyLink} className="hover:underline">
+            {linkCopied ? "Link copied" : "Copy client link"}
+          </button>
+          <button onClick={revokeLink} disabled={busy} className="text-zinc-400 hover:underline disabled:opacity-50">
+            Revoke
+          </button>
+        </span>
+      ) : (
+        <button onClick={generateLink} disabled={busy} className="hover:underline disabled:opacity-50">
+          Generate client link
         </button>
       )}
     </div>

@@ -79,8 +79,10 @@ export default function Dashboard() {
   const [creating, setCreating] = useState(false);
   const [title, setTitle] = useState("");
   const [roleFamily, setRoleFamily] = useState("");
+  const [clientName, setClientName] = useState("");
   const [showClosed, setShowClosed] = useState(false);
   const [myJobsOnly, setMyJobsOnly] = useState(false);
+  const [clientFilter, setClientFilter] = useState("");
 
   const refresh = () => {
     listJobs()
@@ -102,7 +104,7 @@ export default function Dashboard() {
     setCreating(true);
     setError(null);
     try {
-      const job = await createJob(title.trim(), roleFamily.trim());
+      const job = await createJob(title.trim(), roleFamily.trim(), undefined, clientName.trim());
       router.push(`/jobs/${job.role_id}`);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Could not create the job.");
@@ -231,6 +233,18 @@ export default function Dashboard() {
             className="rounded-md border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-zinc-950"
           />
         </div>
+        <div className="flex flex-col gap-1">
+          <label className="text-xs font-medium text-zinc-500" htmlFor="client_name">
+            Client
+          </label>
+          <input
+            id="client_name"
+            value={clientName}
+            onChange={(e) => setClientName(e.target.value)}
+            placeholder="optional — which client this role is for"
+            className="rounded-md border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-zinc-950"
+          />
+        </div>
         <button
           type="submit"
           disabled={creating || !title.trim()}
@@ -268,6 +282,22 @@ export default function Dashboard() {
           >
             Show closed jobs
           </button>
+          {(() => {
+            const clients = [...new Set(jobs.map((j) => j.client_name).filter((c): c is string => Boolean(c)))].sort();
+            if (clients.length === 0) return null;
+            return (
+              <select
+                value={clientFilter}
+                onChange={(e) => setClientFilter(e.target.value)}
+                className="rounded-md border border-zinc-300 bg-surface px-2.5 py-1.5 text-xs font-medium outline-none focus:border-indigo-600 dark:border-zinc-700"
+              >
+                <option value="">All clients</option>
+                {clients.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            );
+          })()}
         </div>
       )}
 
@@ -279,7 +309,8 @@ export default function Dashboard() {
         (() => {
           const visible = (jobs ?? [])
             .filter((j) => showClosed || !CLOSED_LIFECYCLE_STATUSES.includes(j.lifecycle_status))
-            .filter((j) => !myJobsOnly || j.owner_email === user?.email);
+            .filter((j) => !myJobsOnly || j.owner_email === user?.email)
+            .filter((j) => !clientFilter || j.client_name === clientFilter);
           if (visible.length === 0) {
             return <p className="text-sm text-zinc-500">No jobs match these filters.</p>;
           }
@@ -303,6 +334,9 @@ export default function Dashboard() {
                     )}
                   </div>
                   {job.role_family && <p className="text-xs text-zinc-500">{job.role_family}</p>}
+                  {job.client_name && (
+                    <p className="text-xs font-medium text-indigo-700 dark:text-indigo-400">{job.client_name}</p>
+                  )}
                   {job.owner_email && job.owner_email !== user?.email && (
                     <p className="text-xs text-zinc-400">Owner: {job.owner_email}</p>
                   )}

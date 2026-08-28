@@ -23,6 +23,7 @@ merge_prioritization now, never by a generic whole-state write-back.
 
 import logging
 import re
+import secrets
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -228,30 +229,39 @@ def set_candidate_note(role_id: str, candidate_id: str, note: str) -> dict[str, 
 def _job_dict(job: Job) -> dict[str, Any]:
     return {
         "role_id": job.role_id, "title": job.title, "role_family": job.role_family,
+        "client_name": job.client_name, "share_token": job.share_token,
         "lifecycle_status": job.lifecycle_status, "owner_email": job.owner_email,
         "created_at": job.created_at, "updated_at": job.updated_at,
     }
 
 
-def create_job(role_id: str, *, title: str = "", role_family: str = "", owner_email: str = "") -> dict[str, Any]:
+def create_job(
+    role_id: str, *, title: str = "", role_family: str = "", owner_email: str = "", client_name: str = "",
+) -> dict[str, Any]:
     """First-class job creation with display metadata. Not part of
     storage.py's contract — the file backend has no "job shell" concept,
     a role only exists once a section is written. The API's POST /jobs
     needs this so a dashboard has a title to show before intake has run.
     `owner_email` (Phase 10) defaults the job to whoever created it —
     api.py passes the authenticated recruiter's email; left unset for
-    calls (e.g. from tests) that don't have one.
+    calls (e.g. from tests) that don't have one. `client_name` (Batch B)
+    is optional — an internal recruiting team has no client to name.
     """
     with db.get_session() as session:
         job = session.get(Job, role_id)
         if job is None:
-            job = Job(role_id=role_id, title=title or role_id, role_family=role_family, owner_email=owner_email or None)
+            job = Job(
+                role_id=role_id, title=title or role_id, role_family=role_family,
+                owner_email=owner_email or None, client_name=client_name or None,
+            )
             session.add(job)
         else:
             if title:
                 job.title = title
             if role_family:
                 job.role_family = role_family
+            if client_name:
+                job.client_name = client_name
         session.commit()
         return _job_dict(job)
 
@@ -289,6 +299,67 @@ def set_job_owner(role_id: str, owner_email: str | None) -> dict[str, Any]:
         job.owner_email = owner_email or None
         session.commit()
         return _job_dict(job)
+
+
+def set_job_client(role_id: str, client_name: str | None) -> dict[str, Any]:
+    with db.get_session() as session:
+        job = session.get(Job, role_id)
+        if job is None:
+            raise ValueError(f"job '{role_id}' not found")
+        job.client_name = client_name or None
+        session.commit()
+        return _job_dict(job)
+
+
+def generate_share_link(role_id: str) -> dict[str, Any]:
+    """A random, rotatable token (Batch B) — never the role_id itself, so
+    a leaked link can be revoked/regenerated without renaming the role."""
+    with db.get_session() as session:
+        job = session.get(Job, role_id)
+        if job is None:
+            raise ValueError(f"job '{role_id}' not found")
+        job.share_token = secrets.token_urlsafe(24)
+        session.commit()
+        return _job_dict(job)
+
+
+def revoke_share_link(role_id: str) -> dict[str, Any]:
+    with db.get_session() as session:
+        job = session.get(Job, role_id)
+        if job is None:
+            raise ValueError(f"job '{role_id}' not found")
+        job.share_token = None
+        session.commit()
+        return _job_dict(job)
+
+
+def get_public_role_summary(share_token: str) -> dict[str, Any] | None:
+    """Read-only client-facing view (Batch B) behind a share token —
+    counts and stage names only, never individual candidate detail (CTC,
+    notes, evidence) or anything from the recruiter's own workspace."""
+    with db.get_session() as session:
+        job = session.scalars(select(Job).where(Job.share_token == share_token)).first()
+        if job is None:
+            return None
+        role_id, title, client_name = job.role_id, job.title, job.client_name
+        lifecycle_status, updated_at = job.lifecycle_status, job.updated_at
+        total_candidates = len(
+            session.scalars(
+                select(CandidateEvaluation).where(CandidateEvaluation.role_id == role_id)
+            ).all()
+        )
+
+    funnel = load_role(role_id).get("funnel", {})
+    counts_by_stage: dict[str, int] = {}
+    for record in funnel.values():
+        stage = record.get("current_stage", "IDENTIFIED")
+        counts_by_stage[stage] = counts_by_stage.get(stage, 0) + 1
+
+    return {
+        "role_id": role_id, "title": title, "client_name": client_name,
+        "lifecycle_status": lifecycle_status, "updated_at": updated_at,
+        "total_candidates": total_candidates, "counts_by_stage": counts_by_stage,
+    }
 
 
 # Sections a role template carries forward — the hiring-strategy work

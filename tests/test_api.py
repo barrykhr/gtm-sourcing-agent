@@ -757,6 +757,65 @@ def test_clone_job_inherits_cloning_recruiter_as_owner(isolated_db):
     assert resp.json()["owner_email"] == "recruiter@example.com"
 
 
+# ── client tagging (Batch B) ────────────────────────────────────────────
+
+
+def test_create_job_with_client_name(isolated_db):
+    resp = client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role", "client_name": "Acme Robotics"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["client_name"] == "Acme Robotics"
+
+
+def test_set_job_client_reassigns(isolated_db):
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    resp = client.patch("/jobs/ae-role/client", json={"client_name": "Globex Corp"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["client_name"] == "Globex Corp"
+
+
+def test_set_job_client_can_clear(isolated_db):
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role", "client_name": "Acme Robotics"})
+    resp = client.patch("/jobs/ae-role/client", json={"client_name": None})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["client_name"] is None
+
+
+# ── client-facing share links (Batch B) ─────────────────────────────────
+
+
+def test_share_link_lifecycle_and_public_route(isolated_db):
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role", "client_name": "Acme Robotics"})
+
+    gen = client.post("/jobs/ae-role/share-link")
+    assert gen.status_code == 200, gen.text
+    token = gen.json()["share_token"]
+    assert token
+
+    # public route needs no auth — a fresh client with no cookies
+    from fastapi.testclient import TestClient as _TestClient
+    from gtm_sourcing_agent.api import app as _app
+    anon = _TestClient(_app)
+    public = anon.get(f"/public/roles/{token}")
+    assert public.status_code == 200, public.text
+    assert public.json()["title"] == "AE Role"
+    assert public.json()["client_name"] == "Acme Robotics"
+
+    revoke = client.delete("/jobs/ae-role/share-link")
+    assert revoke.status_code == 200, revoke.text
+    assert revoke.json()["share_token"] is None
+
+    after_revoke = anon.get(f"/public/roles/{token}")
+    assert after_revoke.status_code == 404
+
+
+def test_public_route_404_for_unknown_token(isolated_db):
+    from fastapi.testclient import TestClient as _TestClient
+    from gtm_sourcing_agent.api import app as _app
+    anon = _TestClient(_app)
+    resp = anon.get("/public/roles/not-a-real-token")
+    assert resp.status_code == 404
+
+
 # ── candidate notes (Phase 10) ──────────────────────────────────────────
 
 

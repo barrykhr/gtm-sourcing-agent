@@ -59,7 +59,16 @@ if _COOKIE_SAMESITE == "none":
 
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        if request.method == "OPTIONS" or request.url.path in _PUBLIC_PATHS:
+        # /public/... (Batch B: client-facing share links) is deliberately
+        # unauthenticated — it's the one surface meant for someone
+        # outside the recruiting team, gated by an unguessable token
+        # instead of a login, and it only ever returns the curated
+        # summary from get_public_role_summary(), never raw workspace data.
+        if (
+            request.method == "OPTIONS"
+            or request.url.path in _PUBLIC_PATHS
+            or request.url.path.startswith("/public/")
+        ):
             return await call_next(request)
         token = request.cookies.get(auth.SESSION_COOKIE_NAME)
         user = auth.get_user_from_session(token) if token else None
@@ -213,6 +222,7 @@ def _maybe_fire_decision_webhook(role_id: str, candidate_id: str, decision: str)
 class JobCreateRequest(BaseModel):
     title: str
     role_family: str = ""
+    client_name: str = ""
     role_id: str | None = None  # override the auto-generated slug if provided
 
 
@@ -267,6 +277,10 @@ class JobOwnerRequest(BaseModel):
     owner_email: str | None = None
 
 
+class JobClientRequest(BaseModel):
+    client_name: str | None = None
+
+
 class CandidateNoteRequest(BaseModel):
     note: str = ""
 
@@ -304,7 +318,8 @@ def create_job(body: JobCreateRequest, request: Request) -> dict[str, Any]:
     # Ownership (Phase 10) defaults to whoever created it — reassignable
     # later via PATCH /jobs/{role_id}/owner.
     job = db_storage.create_job(
-        role_id, title=body.title, role_family=body.role_family, owner_email=request.state.user["email"]
+        role_id, title=body.title, role_family=body.role_family, client_name=body.client_name,
+        owner_email=request.state.user["email"],
     )
     _log(request, role_id, "created job", detail=body.title)
     return {**job, **_job_summary(role_id)}
@@ -346,6 +361,35 @@ def set_job_owner(role_id: str, body: JobOwnerRequest, request: Request) -> dict
     job = _run_stage(db_storage.set_job_owner, role_id, body.owner_email)
     _log(request, role_id, "changed job owner", detail=body.owner_email or "(unassigned)")
     return {**job, **_job_summary(role_id)}
+
+
+@app.patch("/jobs/{role_id}/client")
+def set_job_client(role_id: str, body: JobClientRequest, request: Request) -> dict[str, Any]:
+    job = _run_stage(db_storage.set_job_client, role_id, body.client_name)
+    _log(request, role_id, "changed client", detail=body.client_name or "(unassigned)")
+    return {**job, **_job_summary(role_id)}
+
+
+@app.post("/jobs/{role_id}/share-link")
+def generate_share_link(role_id: str, request: Request) -> dict[str, Any]:
+    job = _run_stage(db_storage.generate_share_link, role_id)
+    _log(request, role_id, "generated client share link")
+    return {**job, **_job_summary(role_id)}
+
+
+@app.delete("/jobs/{role_id}/share-link")
+def revoke_share_link(role_id: str, request: Request) -> dict[str, Any]:
+    job = _run_stage(db_storage.revoke_share_link, role_id)
+    _log(request, role_id, "revoked client share link")
+    return {**job, **_job_summary(role_id)}
+
+
+@app.get("/public/roles/{share_token}")
+def public_role_summary(share_token: str) -> dict[str, Any]:
+    summary = db_storage.get_public_role_summary(share_token)
+    if summary is None:
+        raise HTTPException(status_code=404, detail="This link is no longer valid.")
+    return summary
 
 
 @app.get("/jobs")
