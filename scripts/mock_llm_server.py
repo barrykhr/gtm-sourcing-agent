@@ -26,9 +26,11 @@ from gtm_sourcing_agent.models import (  # noqa: E402
     IdealCandidateProfile,
     JobDescription,
     OutreachSequence,
+    RoleInterviewQuestions,
     ScreeningQuestionSet,
     TalentMap,
 )
+from gtm_sourcing_agent.models.interview_questions import InterviewQuestion  # noqa: E402
 from gtm_sourcing_agent.models.candidate import EvidencedFact  # noqa: E402
 from gtm_sourcing_agent.models.talent_map import (  # noqa: E402
     SearchStrategy,
@@ -135,6 +137,9 @@ def _fake_candidate(**_) -> Candidate:
         current_company="Samsara",
         current_title="Enterprise Account Executive",
         location="Austin, TX",
+        current_ctc="$165,000 base + $85,000 variable",
+        expected_ctc="$190,000 OTE",
+        notice_period="30 days",
         previous_relevant_companies=["Salesforce", "Outreach"],
         relevant_experience_summary="4 years enterprise AE at Samsara, 2 years mid-market AE at Salesforce.",
         industry="IoT / industrial software",
@@ -153,7 +158,10 @@ def _fake_prioritization(**_) -> CandidatePrioritization:
     return CandidatePrioritization(
         candidate_id="",
         tier="A",
+        fit_score=87,
+        fit_rating="GREEN",
         why_they_fit=["132% quota attainment matches the must-have bar", "Enterprise segment at a comparable company"],
+        weaknesses=["No visibility into win rate or self-sourced vs. inbound split"],
         what_is_unknown=["Win rate", "Whether deals were self-sourced or inbound"],
         what_to_validate=["Ask for a specific deal walkthrough with ACV and cycle length"],
     )
@@ -165,6 +173,33 @@ def _fake_screening(**_) -> ScreeningQuestionSet:
         must_ask=["You closed 132% of a $1M quota — walk me through your 3 largest deals: ACV, cycle length, and how self-sourced they were."],
         nice_to_ask=["What CRM/sales stack did you use at Samsara?"],
         red_flag_followups=["Have you had a quarter below 60% attainment? What happened?"],
+    )
+
+
+def _fake_interview_questions(**_) -> RoleInterviewQuestions:
+    return RoleInterviewQuestions(
+        core_questions=[
+            InterviewQuestion(
+                question="Walk me through your last 3 closed deals — ACV, cycle length, and how self-sourced they were.",
+                why_it_matters="Validates the $1M+ quota / enterprise-closing must-have.",
+            ),
+            InterviewQuestion(
+                question="How did you break into net-new accounts vs. expand existing ones?",
+                why_it_matters="Confirms hunter vs. farmer mix expected for this seat.",
+            ),
+        ],
+        role_specific_questions=[
+            InterviewQuestion(
+                question="Have you sold into industrial/manufacturing buyers before? What was different about that sales motion?",
+                why_it_matters="This role's ICP calls out industrial/manufacturing domain as nice-to-have.",
+            ),
+        ],
+        red_flag_questions=[
+            InterviewQuestion(
+                question="Tell me about a quarter you missed — what happened and what did you change?",
+                why_it_matters="Probes the calibration's red flag: inconsistent attainment.",
+            ),
+        ],
     )
 
 
@@ -183,6 +218,7 @@ _BY_STAGE = {
     "icp": _fake_icp,
     "talent_map": _fake_talent_map,
     "search_strategy": _fake_search_strategy,
+    "interview_questions": _fake_interview_questions,
     "candidate_analysis": _fake_candidate,
     "prioritization": _fake_prioritization,
     "screening": _fake_screening,

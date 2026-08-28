@@ -340,6 +340,7 @@ def _evaluation_summary(ev: CandidateEvaluation, jobs: dict[str, Job]) -> dict[s
         "job_title": job.title if job else ev.role_id,
         "candidate_evaluation_id": ev.candidate_evaluation_id,
         "tier": p.get("tier"),
+        "fit_rating": p.get("fit_rating"),
         "why_they_fit": p.get("why_they_fit"),
         "recruiter_decision": p.get("recruiter_decision"),
     }

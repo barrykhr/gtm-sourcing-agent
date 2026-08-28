@@ -100,6 +100,8 @@ export type JobDetail = JobSummary & {
 
 export type EvidencedFact = { fact: string; evidence_level: "VERIFIED" | "NOT_STATED" | "INFERRED"; source: string };
 
+export type FitRating = "RED" | "YELLOW" | "GREEN";
+
 export type Candidate = {
   candidate_id: string;
   canonical_candidate_id: string;
@@ -107,6 +109,9 @@ export type Candidate = {
   current_company: string;
   current_title: string;
   location: string;
+  current_ctc: string;
+  expected_ctc: string;
+  notice_period: string;
   relevant_experience_summary: string;
   achievements: EvidencedFact[];
   metrics: EvidencedFact[];
@@ -116,7 +121,10 @@ export type Candidate = {
   note: string;
   prioritization: {
     tier: "A" | "B" | "C" | "D";
+    fit_score: number;
+    fit_rating: FitRating;
     why_they_fit: string[];
+    weaknesses: string[];
     what_is_unknown: string[];
     what_to_validate: string[];
     recruiter_decision: string | null;
@@ -128,6 +136,7 @@ export type CandidateEvaluationSummary = {
   job_title: string;
   candidate_evaluation_id: string;
   tier: "A" | "B" | "C" | "D" | null;
+  fit_rating: FitRating | null;
   why_they_fit: string[] | null;
   recruiter_decision: string | null;
 };
@@ -254,6 +263,19 @@ export const runTalentMap = async (roleId: string) =>
 
 export const runSearchStrategy = async (roleId: string) =>
   waitForTask<Json>(roleId, await post<Task>(`/jobs/${roleId}/search-strategy`));
+
+// Role-level interview questions — generated once from the ICP and
+// calibration, varies per role. Distinct from screening questions, which
+// validate one specific candidate's own record.
+export type InterviewQuestion = { question: string; why_it_matters: string };
+export type RoleInterviewQuestions = {
+  core_questions: InterviewQuestion[];
+  role_specific_questions: InterviewQuestion[];
+  red_flag_questions: InterviewQuestion[];
+};
+
+export const runInterviewQuestions = async (roleId: string) =>
+  waitForTask<RoleInterviewQuestions>(roleId, await post<Task>(`/jobs/${roleId}/interview-questions`));
 
 // ── candidates ─────────────────────────────────────────────────────────
 

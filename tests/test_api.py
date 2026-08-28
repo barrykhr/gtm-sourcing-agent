@@ -360,6 +360,31 @@ def test_analytics_overview_route(isolated_db, fake_generate):
     assert overview["decisions_pending"] == 1
 
 
+def test_interview_questions_route(isolated_db, fake_generate):
+    from gtm_sourcing_agent.models import RoleInterviewQuestions
+    from gtm_sourcing_agent.models.interview_questions import InterviewQuestion
+
+    from gtm_sourcing_agent import db_storage
+
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    db_storage.merge_section("ae-role", "icp", {"must_have": ["SaaS"]})
+    db_storage.merge_section("ae-role", "calibration", {"red_flags": ["job-hopping"]})
+
+    fake_generate.queue.append(
+        RoleInterviewQuestions(
+            core_questions=[InterviewQuestion(question="Walk me through a deal.", why_it_matters="validates quota")],
+        )
+    )
+    resp = client.post("/jobs/ae-role/interview-questions")
+    assert resp.status_code == 202, resp.text
+    task = _wait_for_task("ae-role", resp.json()["task_id"])
+    assert task["status"] == "succeeded", task
+    assert task["result"]["core_questions"][0]["question"] == "Walk me through a deal."
+
+    job = client.get("/jobs/ae-role").json()
+    assert job["state"]["interview_questions"]["core_questions"][0]["question"] == "Walk me through a deal."
+
+
 def test_team_usage_route(isolated_db, fake_generate):
     from gtm_sourcing_agent.models import Candidate
 

@@ -34,4 +34,10 @@ Also report: missing information (what you'd need to properly assess
 fit), concerns, and a recommended next action (e.g. "screen", "needs
 more research", "pass for now with reason").
 
+If the source material states current CTC, expected CTC, or notice
+period, capture them verbatim in `current_ctc`, `expected_ctc`, and
+`notice_period` (free text — currency, period, and format vary by
+source, don't normalize or guess a currency). Leave a field empty if the
+source material never mentions it — do not estimate or invent a number.
+
 Output must validate against the Candidate schema.

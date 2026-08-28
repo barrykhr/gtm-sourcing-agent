@@ -29,6 +29,7 @@ import {
   runCalibrate,
   runIcp,
   runIntake,
+  runInterviewQuestions,
   runSearchStrategy,
   runTalentMap,
   screenCandidate,
@@ -42,13 +43,14 @@ import {
   updateIcpCriteria,
   uploadCandidate,
 } from "@/lib/api";
-import { StatusChip, tierVariant } from "@/components/StatusChip";
+import { StatusChip, rygVariant, tierVariant } from "@/components/StatusChip";
 import { CopilotPanel } from "@/components/CopilotPanel";
 import { useAuth } from "@/lib/auth-context";
 
 const TABS = [
   "Overview",
   "Hiring Intelligence",
+  "Interview Questions",
   "Talent Map",
   "Sourcing",
   "Candidates",
@@ -154,6 +156,7 @@ export default function JobWorkspace() {
 
       {tab === "Overview" && <OverviewTab job={job} busy={busy} runAction={runAction} />}
       {tab === "Hiring Intelligence" && <HiringProfileTab job={job} busy={busy} runAction={runAction} />}
+      {tab === "Interview Questions" && <InterviewQuestionsTab job={job} busy={busy} runAction={runAction} />}
       {tab === "Talent Map" && <TalentMapTab job={job} busy={busy} runAction={runAction} />}
       {tab === "Sourcing" && <SourcingTab job={job} busy={busy} runAction={runAction} />}
       {tab === "Candidates" && (
@@ -483,6 +486,52 @@ function HiringProfileTab({ job, busy, runAction }: StageProps) {
           />
           <Card title="Transferable"><List items={icp.transferable} /></Card>
           <Card title="Disqualifier"><List items={icp.disqualifier} /></Card>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Interview Questions ────────────────────────────────────────────────
+// Role-level, generated once from the ICP + calibration (varies per
+// role) — distinct from the per-candidate screening questions on the
+// Candidates tab, which validate one specific candidate's own record.
+
+function QuestionList({ items }: { items?: { question: string; why_it_matters: string }[] }) {
+  if (!items || items.length === 0) return <p className="text-sm text-zinc-400">—</p>;
+  return (
+    <ul className="space-y-3 text-sm">
+      {items.map((q, i) => (
+        <li key={i}>
+          <p className="font-medium">{q.question}</p>
+          {q.why_it_matters && <p className="mt-0.5 text-xs text-zinc-500">{q.why_it_matters}</p>}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function InterviewQuestionsTab({ job, busy, runAction }: StageProps) {
+  const icp: Json | undefined = job.state.icp;
+  const questions: Json | undefined = job.state.interview_questions;
+
+  if (!icp) {
+    return <p className="text-sm text-zinc-500">Build the hiring profile (ICP) on the Hiring Intelligence tab first.</p>;
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <ActionButton
+        label={questions ? "Regenerate questions" : "Generate interview questions"}
+        busyLabel="Writing…" busy={busy === "interview_questions"}
+        onClick={() => runAction("interview_questions", () => runInterviewQuestions(job.role_id))}
+      />
+
+      {questions && (
+        <div className="grid gap-4 md:grid-cols-3">
+          <Card title="Core questions"><QuestionList items={questions.core_questions} /></Card>
+          <Card title="Specific to this role"><QuestionList items={questions.role_specific_questions} /></Card>
+          <Card title="Red-flag follow-ups"><QuestionList items={questions.red_flag_questions} /></Card>
         </div>
       )}
     </div>
@@ -929,7 +978,13 @@ function CandidatesTab({
                       </td>
                       <td className="px-4 py-2.5">
                         {c.prioritization ? (
-                          <StatusChip label={c.prioritization.tier} variant={tierVariant(c.prioritization.tier)} />
+                          <div className="flex items-center gap-1.5">
+                            <StatusChip label={c.prioritization.tier} variant={tierVariant(c.prioritization.tier)} />
+                            <StatusChip
+                              label={`${c.prioritization.fit_rating} · ${c.prioritization.fit_score}`}
+                              variant={rygVariant(c.prioritization.fit_rating)}
+                            />
+                          </div>
                         ) : (
                           <StatusChip label="—" variant="pending" />
                         )}
@@ -968,9 +1023,18 @@ function CandidatesTab({
                               {busy === `scr-${c.candidate_id}` ? "Writing…" : "Generate screening questions"}
                             </button>
 
+                            <Card title="Compensation & availability">
+                              <dl className="space-y-1 text-sm">
+                                <Row label="Current CTC" value={c.current_ctc} />
+                                <Row label="Expected CTC" value={c.expected_ctc} />
+                                <Row label="Notice period" value={c.notice_period} />
+                              </dl>
+                            </Card>
+
                             {c.prioritization && (
-                              <div className="grid gap-3 sm:grid-cols-3">
+                              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                                 <Card title="Why they fit"><List items={c.prioritization.why_they_fit} /></Card>
+                                <Card title="Weaknesses"><List items={c.prioritization.weaknesses} /></Card>
                                 <Card title="Unknown"><List items={c.prioritization.what_is_unknown} /></Card>
                                 <Card title="To validate"><List items={c.prioritization.what_to_validate} /></Card>
                               </div>
@@ -1141,8 +1205,26 @@ function CandidateComparison({ candidates, onClose }: { candidates: Candidate[];
   const rows: [string, (c: Candidate) => React.ReactNode][] = [
     ["Role & company", (c) => `${c.current_title} @ ${c.current_company}`],
     ["Location", (c) => c.location || "—"],
-    ["Tier", (c) => c.prioritization ? <StatusChip label={c.prioritization.tier} variant={tierVariant(c.prioritization.tier)} /> : "—"],
+    ["Current CTC", (c) => c.current_ctc || "—"],
+    ["Expected CTC", (c) => c.expected_ctc || "—"],
+    ["Notice period", (c) => c.notice_period || "—"],
+    [
+      "Tier & fit",
+      (c) =>
+        c.prioritization ? (
+          <div className="flex items-center gap-1.5">
+            <StatusChip label={c.prioritization.tier} variant={tierVariant(c.prioritization.tier)} />
+            <StatusChip
+              label={`${c.prioritization.fit_rating} · ${c.prioritization.fit_score}`}
+              variant={rygVariant(c.prioritization.fit_rating)}
+            />
+          </div>
+        ) : (
+          "—"
+        ),
+    ],
     ["Why they fit", (c) => <List items={c.prioritization?.why_they_fit} />],
+    ["Weaknesses", (c) => <List items={c.prioritization?.weaknesses} />],
     ["What's unknown", (c) => <List items={c.prioritization?.what_is_unknown} />],
     ["To validate", (c) => <List items={c.prioritization?.what_to_validate} />],
     ["Decision", (c) => c.prioritization?.recruiter_decision || "—"],

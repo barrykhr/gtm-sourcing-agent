@@ -28,6 +28,7 @@ from .stages import candidate_analysis as candidate_analysis_stage
 from .stages import funnel as funnel_stage
 from .stages import icp as icp_stage
 from .stages import intake as intake_stage
+from .stages import interview_questions as interview_questions_stage
 from .stages import outreach as outreach_stage
 from .stages import prioritization as prioritization_stage
 from .stages import screening as screening_stage
@@ -447,6 +448,10 @@ def _run_search_strategy(role_id: str, args: dict[str, Any]) -> dict[str, Any]:
     return search_strategy_stage.run(role_id, storage_backend=db_storage).model_dump()
 
 
+def _run_interview_questions(role_id: str, args: dict[str, Any]) -> dict[str, Any]:
+    return interview_questions_stage.run(role_id, storage_backend=db_storage).model_dump()
+
+
 def _run_add_candidate(role_id: str, args: dict[str, Any]) -> dict[str, Any]:
     return candidate_analysis_stage.run(
         role_id, args["source_text"], args["role_family"],
@@ -472,6 +477,7 @@ for _kind, _fn in [
     ("icp", _run_icp),
     ("talent_map", _run_talent_map),
     ("search_strategy", _run_search_strategy),
+    ("interview_questions", _run_interview_questions),
     ("add_candidate", _run_add_candidate),
     ("prioritize", _run_prioritize),
     ("screen", _run_screen),
@@ -516,6 +522,12 @@ def talent_map(role_id: str, request: Request) -> dict[str, Any]:
 def search_strategy(role_id: str, request: Request) -> dict[str, Any]:
     _log(request, role_id, "requested search strategy")
     return task_queue.enqueue(role_id, "search_strategy", {})
+
+
+@app.post("/jobs/{role_id}/interview-questions", status_code=202)
+def interview_questions(role_id: str, request: Request) -> dict[str, Any]:
+    _log(request, role_id, "requested interview questions")
+    return task_queue.enqueue(role_id, "interview_questions", {})
 
 
 @app.patch("/jobs/{role_id}/icp/criteria")

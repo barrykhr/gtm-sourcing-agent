@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { ApiError, CanonicalCandidate, getCandidateGlobal } from "@/lib/api";
-import { StatusChip, tierVariant } from "@/components/StatusChip";
+import { StatusChip, rygVariant, tierVariant } from "@/components/StatusChip";
 
 export default function CandidateDetail() {
   const params = useParams<{ candidate_id: string }>();
@@ -75,7 +75,10 @@ export default function CandidateDetail() {
                   )}
                 </div>
                 {e.tier ? (
-                  <StatusChip label={`Tier ${e.tier}`} variant={tierVariant(e.tier)} />
+                  <div className="flex items-center gap-1.5">
+                    <StatusChip label={`Tier ${e.tier}`} variant={tierVariant(e.tier)} />
+                    {e.fit_rating && <StatusChip label={e.fit_rating} variant={rygVariant(e.fit_rating)} />}
+                  </div>
                 ) : (
                   <StatusChip label="Not prioritized" variant="pending" />
                 )}

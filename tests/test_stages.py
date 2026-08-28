@@ -16,15 +16,18 @@ from gtm_sourcing_agent.models import (
     IdealCandidateProfile,
     JobDescription,
     OutreachSequence,
+    RoleInterviewQuestions,
     ScreeningQuestionSet,
     TalentMap,
 )
+from gtm_sourcing_agent.models.interview_questions import InterviewQuestion
 from gtm_sourcing_agent.models.talent_map import SearchStrategy, TargetCompany
 from gtm_sourcing_agent.stages import (
     calibration,
     candidate_analysis,
     icp,
     intake,
+    interview_questions,
     outreach,
     prioritization,
     screening,
@@ -150,6 +153,55 @@ def test_prioritization_rejects_unknown_candidate(isolated_workspace, fake_gener
     with pytest.raises(ValueError, match="cand-999"):
         prioritization.run("acme-ae-2026", "cand-999")
     assert fake_generate.calls == []
+
+
+def test_prioritization_carries_score_rating_and_weaknesses(isolated_workspace, fake_generate):
+    storage.merge_section("acme-ae-2026", "icp", {"must_have": ["SaaS"]})
+    storage.merge_candidate("acme-ae-2026", "cand-1", {"name": "Jane"})
+    fake_generate.queue.append(
+        CandidatePrioritization(
+            candidate_id="cand-1", tier="A", fit_score=82, fit_rating="GREEN",
+            weaknesses=["No self-sourced pipeline evidence"],
+        )
+    )
+
+    result = prioritization.run("acme-ae-2026", "cand-1")
+
+    assert result.fit_score == 82
+    assert result.fit_rating == "GREEN"
+    assert result.weaknesses == ["No self-sourced pipeline evidence"]
+    stored = storage.load_role("acme-ae-2026")["prioritizations"]["cand-1"]
+    assert stored["fit_score"] == 82
+    assert stored["fit_rating"] == "GREEN"
+
+
+def test_interview_questions_requires_icp_and_calibration(isolated_workspace, fake_generate):
+    with pytest.raises(ValueError, match="icp"):
+        interview_questions.run("acme-ae-2026")
+    assert fake_generate.calls == []
+
+    storage.merge_section("acme-ae-2026", "icp", {"must_have": ["SaaS"]})
+    with pytest.raises(ValueError, match="calibration"):
+        interview_questions.run("acme-ae-2026")
+    assert fake_generate.calls == []
+
+
+def test_interview_questions_persists_and_varies_by_role(isolated_workspace, fake_generate):
+    storage.merge_section("acme-ae-2026", "icp", {"must_have": ["SaaS"]})
+    storage.merge_section("acme-ae-2026", "calibration", {"red_flags": ["job-hopping"]})
+    fixed = RoleInterviewQuestions(
+        core_questions=[InterviewQuestion(question="Walk me through a deal.", why_it_matters="validates quota")],
+    )
+    fake_generate.queue.append(fixed)
+
+    result = interview_questions.run("acme-ae-2026")
+
+    assert result == fixed
+    assert storage.load_role("acme-ae-2026")["interview_questions"] == fixed.model_dump()
+    prompt = fake_generate.calls[0]["prompt"]
+    assert "SaaS" in prompt
+    assert "job-hopping" in prompt
+    assert fake_generate.calls[0]["stage"] == "interview_questions"
 
 
 def test_set_recruiter_decision_requires_prioritization_first(isolated_workspace):
