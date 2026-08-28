@@ -43,6 +43,20 @@ export default function TeamUsagePage() {
                 {usage.recruiters.reduce((sum, r) => sum + r.total_actions, 0)}
               </p>
             </div>
+            <div className="rounded-lg border border-zinc-200 bg-surface px-4 py-3 shadow-[var(--shadow-sm)] dark:border-zinc-800">
+              <p className="text-xs uppercase tracking-wide text-zinc-500">Placements</p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums">
+                {usage.recruiters.reduce((sum, r) => sum + r.placements, 0)}
+              </p>
+            </div>
+            <div className="rounded-lg border border-zinc-200 bg-surface px-4 py-3 shadow-[var(--shadow-sm)] dark:border-zinc-800">
+              <p className="text-xs uppercase tracking-wide text-zinc-500">Total fees</p>
+              <p className="mt-1 text-2xl font-semibold tabular-nums">
+                {usage.recruiters
+                  .reduce((sum, r) => sum + r.placement_fees, 0)
+                  .toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 })}
+              </p>
+            </div>
           </div>
 
           {usage.recruiters.length === 0 ? (
@@ -56,6 +70,8 @@ export default function TeamUsagePage() {
                     <th className="px-4 py-3 font-medium">Jobs owned</th>
                     <th className="px-4 py-3 font-medium">Candidates added</th>
                     <th className="px-4 py-3 font-medium">Total actions</th>
+                    <th className="px-4 py-3 font-medium">Placements</th>
+                    <th className="px-4 py-3 font-medium">Fees</th>
                     <th className="px-4 py-3 font-medium">Last active</th>
                   </tr>
                 </thead>
@@ -69,6 +85,14 @@ export default function TeamUsagePage() {
                       <td className="px-4 py-3 tabular-nums">{r.jobs_owned}</td>
                       <td className="px-4 py-3 tabular-nums">{r.candidates_added}</td>
                       <td className="px-4 py-3 tabular-nums">{r.total_actions}</td>
+                      <td className="px-4 py-3 tabular-nums">{r.placements}</td>
+                      <td className="px-4 py-3 tabular-nums">
+                        {r.placement_fees > 0
+                          ? r.placement_fees.toLocaleString(undefined, {
+                              style: "currency", currency: "USD", maximumFractionDigits: 0,
+                            })
+                          : "—"}
+                      </td>
                       <td className="px-4 py-3 text-zinc-500">
                         {r.last_active ? new Date(r.last_active).toLocaleString() : "never"}
                       </td>

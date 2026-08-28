@@ -340,6 +340,38 @@ def test_recruiter_decision_requires_prioritization_then_persists(isolated_db, f
     assert listed[0]["prioritization"]["recruiter_decision"] == "pursue"
 
 
+def test_placement_route_requires_prioritization_then_persists(isolated_db, fake_generate):
+    from gtm_sourcing_agent import db_storage
+    from gtm_sourcing_agent.models import Candidate, CandidatePrioritization
+
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    db_storage.merge_section("ae-role", "icp", {"must_have": ["SaaS"]})
+    fake_generate.queue.append(Candidate(candidate_id="cand-1", name="Jane Doe"))
+    add_resp = client.post("/jobs/ae-role/candidates", json={"source_text": "resume", "role_family": "sales"})
+    candidate_id = _wait_for_task("ae-role", add_resp.json()["task_id"])["result"]["candidate_id"]
+
+    resp = client.post(f"/jobs/ae-role/candidates/{candidate_id}/placement", json={"placed": True, "fee": 15000.0})
+    assert resp.status_code == 400
+    assert "not been prioritized" in resp.json()["detail"]
+
+    fake_generate.queue.append(CandidatePrioritization(candidate_id=candidate_id, tier="A"))
+    p_resp = client.post(f"/jobs/ae-role/candidates/{candidate_id}/prioritize")
+    _wait_for_task("ae-role", p_resp.json()["task_id"])
+
+    resp = client.post(f"/jobs/ae-role/candidates/{candidate_id}/placement", json={"placed": True, "fee": 15000.0})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["placed"] is True
+    assert resp.json()["placement_fee"] == 15000.0
+
+    listed = client.get("/jobs/ae-role/candidates").json()
+    assert listed[0]["prioritization"]["placed"] is True
+    assert listed[0]["prioritization"]["placement_fee"] == 15000.0
+
+    overview = client.get("/analytics/overview").json()
+    assert overview["total_placements"] == 1
+    assert overview["total_placement_fees"] == 15000.0
+
+
 def test_analytics_overview_route(isolated_db, fake_generate):
     from gtm_sourcing_agent import db_storage
     from gtm_sourcing_agent.models import Candidate, CandidatePrioritization

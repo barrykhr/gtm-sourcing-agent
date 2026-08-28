@@ -246,6 +246,11 @@ class RecruiterDecisionRequest(BaseModel):
     decision: str
 
 
+class PlacementRequest(BaseModel):
+    placed: bool
+    fee: float = 0.0
+
+
 class ChatRequest(BaseModel):
     message: str
 
@@ -805,6 +810,22 @@ def set_recruiter_decision(
     )
     _log(request, role_id, f"set decision: {body.decision}", candidate_id=candidate_id)
     _maybe_fire_decision_webhook(role_id, candidate_id, body.decision)
+    return result
+
+
+@app.post("/jobs/{role_id}/candidates/{candidate_id}/placement")
+def set_placement(role_id: str, candidate_id: str, body: PlacementRequest, request: Request) -> dict[str, Any]:
+    # Same category as decision/mark-sent above: deterministic,
+    # recruiter-authored, synchronous — the one outcome this system
+    # tracks in dollar terms.
+    result = _run_stage(
+        prioritization_stage.set_placement, role_id, candidate_id,
+        placed=body.placed, fee=body.fee, storage_backend=db_storage,
+    )
+    _log(
+        request, role_id, "marked candidate placed" if body.placed else "cleared placement",
+        detail=f"fee={body.fee}" if body.placed else "", candidate_id=candidate_id,
+    )
     return result
 
 

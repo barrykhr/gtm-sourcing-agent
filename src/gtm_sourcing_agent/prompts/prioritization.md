@@ -39,7 +39,8 @@ Also set:
   weak B/strong C -> YELLOW, weak C/D -> RED — but use judgment, this is
   a distinct at-a-glance signal, not a mechanical remap of the tier.
 
-Do not set `recruiter_decision` — that field belongs to the recruiter,
-not to this stage; leave it null.
+Do not set `recruiter_decision`, `placed`, `placement_fee`, or
+`placed_at` — those fields belong to the recruiter, not to this stage;
+leave them at their defaults.
 
 Output must validate against the CandidatePrioritization schema.

@@ -41,6 +41,7 @@ import {
   setJobClient,
   setJobLifecycle,
   setJobOwner,
+  setPlacement,
   setRecruiterDecision,
   setWebhookConfig,
   testWebhook,
@@ -802,6 +803,7 @@ function CandidatesTab({
   const [expanded, setExpanded] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [decisionDraft, setDecisionDraft] = useState<Record<string, string>>({});
+  const [feeDraft, setFeeDraft] = useState<Record<string, string>>({});
   // "loading" while the cross-job fetch is in flight, null once it fails or
   // resolves to nothing worth showing — undefined means never fetched yet.
   const [crossJob, setCrossJob] = useState<Record<string, CanonicalCandidate | "loading" | null>>({});
@@ -853,6 +855,14 @@ function CandidatesTab({
 
   function saveDecision(candidateId: string, decision: string) {
     return run(`dec-${candidateId}`, () => setRecruiterDecision(roleId, candidateId, decision));
+  }
+
+  function markPlaced(candidateId: string, fee: number) {
+    return run(`placed-${candidateId}`, () => setPlacement(roleId, candidateId, true, fee));
+  }
+
+  function clearPlacement(candidateId: string) {
+    return run(`placed-${candidateId}`, () => setPlacement(roleId, candidateId, false));
   }
 
   async function bulkPrioritize() {
@@ -1232,6 +1242,52 @@ function CandidatesTab({
                                     )}
                                   </div>
                                 </div>
+                              </Card>
+                            )}
+
+                            {c.prioritization && (
+                              <Card title="Placement">
+                                {c.prioritization.placed ? (
+                                  <div className="flex flex-wrap items-center gap-2 text-sm">
+                                    <StatusChip label="Placed" variant="ok" />
+                                    <span className="font-medium tabular-nums">
+                                      {c.prioritization.placement_fee.toLocaleString(undefined, {
+                                        style: "currency", currency: "USD", maximumFractionDigits: 0,
+                                      })}
+                                    </span>
+                                    {c.prioritization.placed_at && (
+                                      <span className="text-xs text-zinc-500">
+                                        {new Date(c.prioritization.placed_at).toLocaleDateString()}
+                                      </span>
+                                    )}
+                                    <button
+                                      onClick={() => clearPlacement(c.candidate_id)}
+                                      disabled={busy === `placed-${c.candidate_id}`}
+                                      className="rounded-md border border-zinc-300 px-2.5 py-1 text-xs text-zinc-500 hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                                    >
+                                      Clear
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <input
+                                      type="number" min="0" step="1"
+                                      value={feeDraft[c.candidate_id] ?? ""}
+                                      onChange={(e) =>
+                                        setFeeDraft((prev) => ({ ...prev, [c.candidate_id]: e.target.value }))
+                                      }
+                                      placeholder="Fee"
+                                      className="w-28 rounded-md border border-zinc-300 px-2 py-1 text-xs outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-zinc-950"
+                                    />
+                                    <button
+                                      onClick={() => markPlaced(c.candidate_id, Number(feeDraft[c.candidate_id] ?? 0))}
+                                      disabled={busy === `placed-${c.candidate_id}`}
+                                      className="rounded-md bg-indigo-700 px-2.5 py-1 text-xs font-medium text-white hover:bg-indigo-800 disabled:opacity-50"
+                                    >
+                                      Mark as placed
+                                    </button>
+                                  </div>
+                                )}
                               </Card>
                             )}
 

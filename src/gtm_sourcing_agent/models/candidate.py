@@ -76,3 +76,6 @@ class CandidatePrioritization(BaseModel):
         default=None,
         description="set only by the recruiter, e.g. 'pursue', 'pass for now', 'revisit in Q3'",
     )
+    placed: bool = Field(default=False, description="set only by the recruiter — never inferred")
+    placement_fee: float = Field(default=0.0, description="set only by the recruiter, in the consultancy's own currency")
+    placed_at: str | None = Field(default=None, description="set only by the recruiter")

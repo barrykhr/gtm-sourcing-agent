@@ -118,6 +118,25 @@ def test_analytics_overview_empty_state(isolated_db):
     assert overview["total_jobs"] == 0
     assert overview["total_evaluations"] == 0
     assert overview["decision_breakdown"] == {}
+    assert overview["total_placements"] == 0
+    assert overview["total_placement_fees"] == 0.0
+
+
+def test_analytics_overview_counts_placements(isolated_db):
+    db_storage.create_job("job-a", title="A")
+    db_storage.merge_candidate("job-a", "cand-1", {"name": "Jane"})
+    db_storage.merge_candidate("job-a", "cand-2", {"name": "Marcus"})
+    db_storage.merge_prioritization(
+        "job-a", "cand-1", {"candidate_id": "cand-1", "tier": "A", "placed": True, "placement_fee": 15000.0}
+    )
+    db_storage.merge_prioritization(
+        "job-a", "cand-2", {"candidate_id": "cand-2", "tier": "A", "placed": True, "placement_fee": 20000.0}
+    )
+
+    overview = db_storage.analytics_overview()
+
+    assert overview["total_placements"] == 2
+    assert overview["total_placement_fees"] == 35000.0
 
 
 def test_team_usage_counts_per_recruiter(isolated_db):
@@ -144,6 +163,31 @@ def test_team_usage_counts_per_recruiter(isolated_db):
     assert by_email["marcus@example.com"]["jobs_owned"] == 0
     assert by_email["marcus@example.com"]["candidates_added"] == 0
     assert by_email["marcus@example.com"]["total_actions"] == 1
+    assert by_email["priya@example.com"]["placements"] == 0
+    assert by_email["priya@example.com"]["placement_fees"] == 0.0
+
+
+def test_team_usage_attributes_placements_to_job_owner(isolated_db):
+    from gtm_sourcing_agent import auth
+
+    auth.create_user("priya@example.com", "password123")
+    auth.create_user("marcus@example.com", "password123")
+    db_storage.create_job("job-a", title="A", owner_email="priya@example.com")
+    db_storage.merge_candidate("job-a", "cand-1", {"name": "Jane"})
+    db_storage.merge_candidate("job-a", "cand-2", {"name": "Marcus"})
+    db_storage.merge_prioritization(
+        "job-a", "cand-1", {"candidate_id": "cand-1", "tier": "A", "placed": True, "placement_fee": 15000.0}
+    )
+    db_storage.merge_prioritization(
+        "job-a", "cand-2", {"candidate_id": "cand-2", "tier": "B", "placed": False}
+    )
+
+    usage = db_storage.team_usage()
+
+    by_email = {r["email"]: r for r in usage["recruiters"]}
+    assert by_email["priya@example.com"]["placements"] == 1
+    assert by_email["priya@example.com"]["placement_fees"] == 15000.0
+    assert by_email["marcus@example.com"]["placements"] == 0
 
 
 def test_team_usage_empty_state(isolated_db):

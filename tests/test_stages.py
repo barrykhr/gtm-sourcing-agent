@@ -204,6 +204,53 @@ def test_interview_questions_persists_and_varies_by_role(isolated_workspace, fak
     assert fake_generate.calls[0]["stage"] == "interview_questions"
 
 
+def test_reprioritizing_preserves_decision_and_placement(isolated_workspace, fake_generate):
+    """Re-running prioritization (a "re-rank") must never silently wipe a
+    recruiter's own recorded decision or placement — those come from the
+    recruiter's own actions, not from this stage, and a fresh model call
+    has no way to know about them."""
+    storage.merge_section("acme-ae-2026", "icp", {"must_have": ["SaaS"]})
+    storage.merge_candidate("acme-ae-2026", "cand-1", {"name": "Jane"})
+    fake_generate.queue.append(CandidatePrioritization(candidate_id="cand-1", tier="B"))
+    prioritization.run("acme-ae-2026", "cand-1")
+    prioritization.set_recruiter_decision("acme-ae-2026", "cand-1", "pursue")
+    prioritization.set_placement("acme-ae-2026", "cand-1", placed=True, fee=15000.0)
+
+    fake_generate.queue.append(CandidatePrioritization(candidate_id="cand-1", tier="A"))
+    result = prioritization.run("acme-ae-2026", "cand-1")
+
+    assert result.tier == "A"  # the re-rank itself did update
+    assert result.recruiter_decision == "pursue"
+    assert result.placed is True
+    assert result.placement_fee == 15000.0
+    stored = storage.load_role("acme-ae-2026")["prioritizations"]["cand-1"]
+    assert stored["recruiter_decision"] == "pursue"
+    assert stored["placed"] is True
+
+
+def test_set_placement_marks_and_clears(isolated_workspace, fake_generate):
+    storage.merge_section("acme-ae-2026", "icp", {"must_have": ["SaaS"]})
+    storage.merge_candidate("acme-ae-2026", "cand-1", {"name": "Jane"})
+    fake_generate.queue.append(CandidatePrioritization(candidate_id="cand-1", tier="A"))
+    prioritization.run("acme-ae-2026", "cand-1")
+
+    result = prioritization.set_placement("acme-ae-2026", "cand-1", placed=True, fee=20000.0)
+    assert result["placed"] is True
+    assert result["placement_fee"] == 20000.0
+    assert result["placed_at"] is not None
+
+    cleared = prioritization.set_placement("acme-ae-2026", "cand-1", placed=False)
+    assert cleared["placed"] is False
+    assert cleared["placement_fee"] == 0.0
+    assert cleared["placed_at"] is None
+
+
+def test_set_placement_requires_prioritization_first(isolated_workspace):
+    storage.merge_candidate("acme-ae-2026", "cand-1", {"name": "Jane"})
+    with pytest.raises(ValueError, match="not been prioritized"):
+        prioritization.set_placement("acme-ae-2026", "cand-1", placed=True, fee=1000.0)
+
+
 def test_set_recruiter_decision_requires_prioritization_first(isolated_workspace):
     storage.merge_candidate("acme-ae-2026", "cand-1", {"name": "Jane"})
     with pytest.raises(ValueError, match="not been prioritized"):

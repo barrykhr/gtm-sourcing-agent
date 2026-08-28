@@ -130,6 +130,9 @@ export type Candidate = {
     what_is_unknown: string[];
     what_to_validate: string[];
     recruiter_decision: string | null;
+    placed: boolean;
+    placement_fee: number;
+    placed_at: string | null;
   } | null;
 };
 
@@ -390,6 +393,19 @@ export type DecisionResult = { candidate_id: string; recruiter_decision: string 
 export const setRecruiterDecision = (roleId: string, candidateId: string, decision: string) =>
   post<DecisionResult>(`/jobs/${roleId}/candidates/${candidateId}/decision`, { decision });
 
+// Placement/fee tracking (Batch B) — the one outcome tracked in dollar
+// terms. placed=false clears the fee/timestamp too, so an "unplaced"
+// record never shows a stale figure.
+export type PlacementResult = {
+  candidate_id: string;
+  placed: boolean;
+  placement_fee: number;
+  placed_at: string | null;
+};
+
+export const setPlacement = (roleId: string, candidateId: string, placed: boolean, fee = 0) =>
+  post<PlacementResult>(`/jobs/${roleId}/candidates/${candidateId}/placement`, { placed, fee });
+
 // A recruiter's own private impression, separate from the structured
 // decision above and from the model's evidence-labeled output — nothing
 // else in the product reads this (Phase 10).
@@ -428,6 +444,8 @@ export type AnalyticsOverview = {
   decisions_recorded: number;
   decisions_pending: number;
   decision_breakdown: Record<string, number>;
+  total_placements: number;
+  total_placement_fees: number;
 };
 
 export const getAnalyticsOverview = () => get<AnalyticsOverview>("/analytics/overview");
@@ -445,6 +463,8 @@ export type RecruiterUsage = {
   candidates_added: number;
   total_actions: number;
   last_active: string | null;
+  placements: number;
+  placement_fees: number;
 };
 export type TeamUsage = { total_users: number; recruiters: RecruiterUsage[] };
 

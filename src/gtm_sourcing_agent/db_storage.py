@@ -508,6 +508,8 @@ def analytics_overview() -> dict[str, Any]:
         decisions_recorded = 0
         decisions_pending = 0
         decision_breakdown: dict[str, int] = {}
+        total_placements = 0
+        total_placement_fees = 0.0
 
         for ev in evaluations:
             p = ev.prioritization
@@ -523,6 +525,9 @@ def analytics_overview() -> dict[str, Any]:
                 decision_breakdown[decision] = decision_breakdown.get(decision, 0) + 1
             else:
                 decisions_pending += 1
+            if p.get("placed"):
+                total_placements += 1
+                total_placement_fees += p.get("placement_fee") or 0.0
 
         return {
             "total_jobs": total_jobs,
@@ -532,6 +537,8 @@ def analytics_overview() -> dict[str, Any]:
             "decisions_recorded": decisions_recorded,
             "decisions_pending": decisions_pending,
             "decision_breakdown": decision_breakdown,
+            "total_placements": total_placements,
+            "total_placement_fees": total_placement_fees,
         }
 
 
@@ -680,15 +687,33 @@ def team_usage() -> dict[str, Any]:
         users = session.scalars(select(User).order_by(User.created_at)).all()
         logs = session.scalars(select(ActivityLog)).all()
         jobs = session.scalars(select(Job)).all()
+        evaluations = session.scalars(select(CandidateEvaluation)).all()
 
         logs_by_user: dict[str, list[ActivityLog]] = {}
         for log in logs:
             logs_by_user.setdefault(log.user_email, []).append(log)
 
         jobs_owned_by_user: dict[str, int] = {}
+        owner_by_role: dict[str, str] = {}
         for job in jobs:
             if job.owner_email:
                 jobs_owned_by_user[job.owner_email] = jobs_owned_by_user.get(job.owner_email, 0) + 1
+                owner_by_role[job.role_id] = job.owner_email
+
+        # Placements/fees (Batch B) attribute to whoever owns the job the
+        # placement happened on — the closest thing to "whose deal was
+        # this" without a separate assignment concept.
+        placements_by_user: dict[str, int] = {}
+        fees_by_user: dict[str, float] = {}
+        for ev in evaluations:
+            p = ev.prioritization
+            if not p or not p.get("placed"):
+                continue
+            owner = owner_by_role.get(ev.role_id)
+            if not owner:
+                continue
+            placements_by_user[owner] = placements_by_user.get(owner, 0) + 1
+            fees_by_user[owner] = fees_by_user.get(owner, 0.0) + (p.get("placement_fee") or 0.0)
 
         recruiters = []
         for u in users:
@@ -702,6 +727,8 @@ def team_usage() -> dict[str, Any]:
                 "candidates_added": candidates_added,
                 "total_actions": len(user_logs),
                 "last_active": last_active,
+                "placements": placements_by_user.get(u.email, 0),
+                "placement_fees": fees_by_user.get(u.email, 0.0),
             })
 
         return {"total_users": len(users), "recruiters": recruiters}
