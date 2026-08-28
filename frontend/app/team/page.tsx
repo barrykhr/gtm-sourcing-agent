@@ -1,16 +1,64 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ApiError, TeamUsage, getTeamUsage } from "@/lib/api";
+import {
+  ApiError,
+  ConversionCounts,
+  TeamUsage,
+  VelocityReport,
+  getTeamUsage,
+  getTeamVelocity,
+} from "@/lib/api";
+
+function rate(numerator: number, denominator: number): string {
+  if (denominator === 0) return "—";
+  return `${Math.round((numerator / denominator) * 100)}%`;
+}
+
+function ConversionCell({ conversion }: { conversion: ConversionCounts }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="tabular-nums">
+        {conversion.sourced} sourced → {conversion.tiered_a} A-tier → {conversion.pursued} pursued →{" "}
+        {conversion.placed} placed
+      </span>
+      <span className="text-xs text-zinc-400">
+        {rate(conversion.tiered_a, conversion.sourced)} tiered · {rate(conversion.pursued, conversion.tiered_a)} pursued ·{" "}
+        {rate(conversion.placed, conversion.pursued)} placed
+      </span>
+    </div>
+  );
+}
+
+function StageDaysCell({ avgDaysInStage }: { avgDaysInStage: Record<string, number> }) {
+  const entries = Object.entries(avgDaysInStage);
+  if (entries.length === 0) return <span className="text-xs text-zinc-400">no completed stage spans yet</span>;
+  return (
+    <div className="flex flex-wrap gap-1">
+      {entries.map(([stage, days]) => (
+        <span
+          key={stage}
+          className="rounded bg-zinc-100 px-1.5 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
+        >
+          {stage.replace(/_/g, " ")}: {days}d
+        </span>
+      ))}
+    </div>
+  );
+}
 
 export default function TeamUsagePage() {
   const [usage, setUsage] = useState<TeamUsage | null>(null);
+  const [velocity, setVelocity] = useState<VelocityReport | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     getTeamUsage()
       .then(setUsage)
       .catch((e) => setError(e instanceof ApiError ? e.message : "Could not reach the API."));
+    getTeamVelocity()
+      .then(setVelocity)
+      .catch(() => {}); // non-critical — the usage tables above are the page's core content
   }, []);
 
   return (
@@ -135,6 +183,62 @@ export default function TeamUsagePage() {
                   </table>
                 </div>
               </div>
+
+              {velocity && (velocity.by_role.length > 0 || velocity.by_recruiter.length > 0) && (
+                <div>
+                  <h2 className="text-sm font-semibold text-zinc-500">Velocity &amp; conversion</h2>
+                  <p className="mt-0.5 mb-2 text-xs text-zinc-400">
+                    Is the effort converting, and where does it stall — cycle time only counts a stage once a
+                    candidate has actually moved past it.
+                  </p>
+
+                  <div className="flex flex-col gap-4">
+                    <div className="overflow-x-auto rounded-lg border border-zinc-200 bg-surface shadow-[var(--shadow-sm)] dark:border-zinc-800">
+                      <table className="w-full min-w-[720px] border-collapse text-sm">
+                        <thead>
+                          <tr className="border-b border-zinc-200 text-left text-xs uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
+                            <th className="px-4 py-3 font-medium">Role</th>
+                            <th className="px-4 py-3 font-medium">Conversion</th>
+                            <th className="px-4 py-3 font-medium">Avg days per completed stage</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {velocity.by_role.map((r) => (
+                            <tr key={r.role_id} className="border-b border-zinc-100 last:border-0 dark:border-zinc-900">
+                              <td className="px-4 py-3 font-medium">{r.title}</td>
+                              <td className="px-4 py-3"><ConversionCell conversion={r.conversion} /></td>
+                              <td className="px-4 py-3"><StageDaysCell avgDaysInStage={r.avg_days_in_stage} /></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {velocity.by_recruiter.length > 0 && (
+                      <div className="overflow-x-auto rounded-lg border border-zinc-200 bg-surface shadow-[var(--shadow-sm)] dark:border-zinc-800">
+                        <table className="w-full min-w-[720px] border-collapse text-sm">
+                          <thead>
+                            <tr className="border-b border-zinc-200 text-left text-xs uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
+                              <th className="px-4 py-3 font-medium">Recruiter</th>
+                              <th className="px-4 py-3 font-medium">Conversion</th>
+                              <th className="px-4 py-3 font-medium">Avg days per completed stage</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {velocity.by_recruiter.map((r) => (
+                              <tr key={r.email} className="border-b border-zinc-100 last:border-0 dark:border-zinc-900">
+                                <td className="px-4 py-3 font-medium">{r.email}</td>
+                                <td className="px-4 py-3"><ConversionCell conversion={r.conversion} /></td>
+                                <td className="px-4 py-3"><StageDaysCell avgDaysInStage={r.avg_days_in_stage} /></td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </>
           )}
 

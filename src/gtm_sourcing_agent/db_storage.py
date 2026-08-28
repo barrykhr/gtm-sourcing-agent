@@ -598,6 +598,93 @@ def attention_needed(follow_up_threshold_days: int = 3) -> dict[str, Any]:
     return {"needs_follow_up": needs_follow_up, "upcoming_interviews": upcoming_interviews}
 
 
+def velocity_report() -> dict[str, Any]:
+    """Per-role and per-recruiter velocity/conversion (Batch B) — the
+    question none of the activity-count views answer: is the effort
+    actually converting, and where does it stall? Stage dwell time comes
+    from each candidate's own stage_history (Phase 8, stages/funnel.py) —
+    only *completed* stage spans count (a transition with a following
+    one), never an open-ended "still sitting here" duration, which is a
+    different stat (see attention_needed's days_in_stage). The
+    conversion funnel (sourced -> tiered A -> pursued -> placed) is
+    deterministic counting over CandidateEvaluation + its prioritization,
+    same discipline as analytics_overview()."""
+    jobs = {j["role_id"]: j for j in list_jobs()}
+
+    empty_conv = {"sourced": 0, "tiered_a": 0, "pursued": 0, "placed": 0}
+    conv_by_role: dict[str, dict[str, int]] = {}
+    conv_by_recruiter: dict[str, dict[str, int]] = {}
+    stage_days_by_role: dict[str, dict[str, list[float]]] = {}
+    stage_days_by_recruiter: dict[str, dict[str, list[float]]] = {}
+
+    def _bump(bucket: dict[str, dict[str, int]], key: str, field: str) -> None:
+        bucket.setdefault(key, dict(empty_conv))[field] += 1
+
+    for role_id, job in jobs.items():
+        owner = job.get("owner_email")
+        state = load_role(role_id)
+        candidates = state.get("candidates") or {}
+        prioritizations = state.get("prioritizations") or {}
+        funnel = state.get("funnel") or {}
+
+        for candidate_id in candidates:
+            _bump(conv_by_role, role_id, "sourced")
+            if owner:
+                _bump(conv_by_recruiter, owner, "sourced")
+            p = prioritizations.get(candidate_id)
+            if not p:
+                continue
+            if p.get("tier") == "A":
+                _bump(conv_by_role, role_id, "tiered_a")
+                if owner:
+                    _bump(conv_by_recruiter, owner, "tiered_a")
+            if p.get("recruiter_decision") == "pursue":
+                _bump(conv_by_role, role_id, "pursued")
+                if owner:
+                    _bump(conv_by_recruiter, owner, "pursued")
+            if p.get("placed"):
+                _bump(conv_by_role, role_id, "placed")
+                if owner:
+                    _bump(conv_by_recruiter, owner, "placed")
+
+        for record in funnel.values():
+            history = record.get("stage_history") or []
+            for i in range(len(history) - 1):
+                stage = history[i].get("stage")
+                start_raw, end_raw = history[i].get("at"), history[i + 1].get("at")
+                if not stage or not start_raw or not end_raw:
+                    continue
+                days = (_parse_aware(end_raw) - _parse_aware(start_raw)).total_seconds() / 86400
+                if days < 0:
+                    continue
+                stage_days_by_role.setdefault(role_id, {}).setdefault(stage, []).append(days)
+                if owner:
+                    stage_days_by_recruiter.setdefault(owner, {}).setdefault(stage, []).append(days)
+
+    def _avg_days(bucket: dict[str, list[float]]) -> dict[str, float]:
+        return {stage: round(sum(vals) / len(vals), 1) for stage, vals in bucket.items()}
+
+    by_role = [
+        {
+            "role_id": role_id,
+            "title": jobs[role_id]["title"],
+            "conversion": conv_by_role.get(role_id, dict(empty_conv)),
+            "avg_days_in_stage": _avg_days(stage_days_by_role.get(role_id, {})),
+        }
+        for role_id in jobs
+    ]
+    by_recruiter = [
+        {
+            "email": email,
+            "conversion": conv,
+            "avg_days_in_stage": _avg_days(stage_days_by_recruiter.get(email, {})),
+        }
+        for email, conv in conv_by_recruiter.items()
+    ]
+
+    return {"by_role": by_role, "by_recruiter": by_recruiter}
+
+
 # ── background tasks (Phase 4) ──────────────────────────────────────────
 # CRUD only — task_queue.py owns *when* a task runs and what "running" a
 # given kind means; this module just persists state so the worker thread

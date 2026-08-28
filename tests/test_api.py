@@ -432,6 +432,27 @@ def test_team_usage_route(isolated_db, fake_generate):
     assert recruiter["total_actions"] >= 1
 
 
+def test_team_velocity_route(isolated_db, fake_generate):
+    from gtm_sourcing_agent import db_storage
+    from gtm_sourcing_agent.models import Candidate, CandidatePrioritization
+
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    db_storage.merge_section("ae-role", "icp", {"must_have": ["SaaS"]})
+    fake_generate.queue.append(Candidate(candidate_id="cand-1", name="Jane Doe"))
+    add_resp = client.post("/jobs/ae-role/candidates", json={"source_text": "resume", "role_family": "sales"})
+    candidate_id = _wait_for_task("ae-role", add_resp.json()["task_id"])["result"]["candidate_id"]
+    fake_generate.queue.append(CandidatePrioritization(candidate_id=candidate_id, tier="A"))
+    p_resp = client.post(f"/jobs/ae-role/candidates/{candidate_id}/prioritize")
+    _wait_for_task("ae-role", p_resp.json()["task_id"])
+
+    velocity = client.get("/team/velocity").json()
+    role = next(r for r in velocity["by_role"] if r["role_id"] == "ae-role")
+    assert role["conversion"]["sourced"] == 1
+    assert role["conversion"]["tiered_a"] == 1
+    recruiter = next(r for r in velocity["by_recruiter"] if r["email"] == "recruiter@example.com")
+    assert recruiter["conversion"]["sourced"] == 1
+
+
 def test_funnel_update_rejects_unknown_stage(isolated_db):
     client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
     resp = client.post("/jobs/ae-role/funnel/cand-1", json={"stage": "not_a_stage"})

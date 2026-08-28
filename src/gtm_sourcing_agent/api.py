@@ -469,6 +469,13 @@ def team_usage() -> dict[str, Any]:
     return db_storage.team_usage()
 
 
+@app.get("/team/velocity")
+def team_velocity() -> dict[str, Any]:
+    """Same visibility as /team/usage — is the effort converting, and
+    where does it stall, per role and per recruiter."""
+    return db_storage.velocity_report()
+
+
 # ── background task runners (Phase 4) ───────────────────────────────────
 # Every LLM-touching stage call is registered here and executed by
 # task_queue.py's worker thread instead of inline in a request handler —

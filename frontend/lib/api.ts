@@ -472,6 +472,20 @@ export type TeamUsage = { total_users: number; recruiters: RecruiterUsage[] };
 
 export const getTeamUsage = () => get<TeamUsage>("/team/usage");
 
+// Velocity/conversion (Batch B) — is the effort converting, and where
+// does it stall, per role and per recruiter. Distinct from team usage's
+// activity counts: this is about outcomes and cycle time, not volume.
+export type ConversionCounts = { sourced: number; tiered_a: number; pursued: number; placed: number };
+export type VelocityEntry = {
+  conversion: ConversionCounts;
+  avg_days_in_stage: Record<string, number>;
+};
+export type RoleVelocity = VelocityEntry & { role_id: string; title: string };
+export type RecruiterVelocity = VelocityEntry & { email: string };
+export type VelocityReport = { by_role: RoleVelocity[]; by_recruiter: RecruiterVelocity[] };
+
+export const getTeamVelocity = () => get<VelocityReport>("/team/velocity");
+
 // Two lists a recruiter would otherwise only notice by checking every
 // job's Pipeline tab themselves (Phase 8).
 export type AttentionItem = {

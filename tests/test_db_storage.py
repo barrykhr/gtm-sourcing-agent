@@ -167,6 +167,65 @@ def test_team_usage_counts_per_recruiter(isolated_db):
     assert by_email["priya@example.com"]["placement_fees"] == 0.0
 
 
+# ── velocity/conversion report (Batch B) ────────────────────────────────
+
+
+def test_velocity_report_conversion_funnel_by_role_and_recruiter(isolated_db):
+    from gtm_sourcing_agent import auth
+
+    auth.create_user("priya@example.com", "password123")
+    db_storage.create_job("job-a", title="Acme AE", owner_email="priya@example.com")
+    db_storage.merge_candidate("job-a", "cand-1", {"name": "Jane"})
+    db_storage.merge_candidate("job-a", "cand-2", {"name": "Marcus"})
+    db_storage.merge_prioritization(
+        "job-a", "cand-1",
+        {"candidate_id": "cand-1", "tier": "A", "recruiter_decision": "pursue", "placed": True, "placement_fee": 1.0},
+    )
+    # cand-2 stays sourced-only — no prioritization
+
+    report = db_storage.velocity_report()
+
+    role = next(r for r in report["by_role"] if r["role_id"] == "job-a")
+    assert role["conversion"] == {"sourced": 2, "tiered_a": 1, "pursued": 1, "placed": 1}
+
+    recruiter = next(r for r in report["by_recruiter"] if r["email"] == "priya@example.com")
+    assert recruiter["conversion"] == {"sourced": 2, "tiered_a": 1, "pursued": 1, "placed": 1}
+
+
+def test_velocity_report_avg_days_in_stage_only_counts_completed_spans(isolated_db):
+    from gtm_sourcing_agent import auth
+
+    auth.create_user("priya@example.com", "password123")
+    db_storage.create_job("job-a", title="Acme AE", owner_email="priya@example.com")
+    db_storage.merge_candidate("job-a", "cand-1", {"name": "Jane"})
+    db_storage.merge_section("job-a", "funnel", {
+        "cand-1": {
+            "candidate_id": "cand-1", "role_id": "job-a", "current_stage": "RESPONDED",
+            "stage_history": [
+                {"stage": "IDENTIFIED", "at": "2026-01-01T00:00:00+00:00", "note": "", "scheduled_at": None},
+                {"stage": "CONTACTED", "at": "2026-01-03T00:00:00+00:00", "note": "", "scheduled_at": None},
+                # RESPONDED has no following entry — the open-ended span
+                # doesn't count (that's attention_needed's job, not this).
+                {"stage": "RESPONDED", "at": "2026-01-08T00:00:00+00:00", "note": "", "scheduled_at": None},
+            ],
+        },
+    })
+
+    report = db_storage.velocity_report()
+
+    role = next(r for r in report["by_role"] if r["role_id"] == "job-a")
+    assert role["avg_days_in_stage"] == {"IDENTIFIED": 2.0, "CONTACTED": 5.0}
+
+    recruiter = next(r for r in report["by_recruiter"] if r["email"] == "priya@example.com")
+    assert recruiter["avg_days_in_stage"] == {"IDENTIFIED": 2.0, "CONTACTED": 5.0}
+
+
+def test_velocity_report_empty_state(isolated_db):
+    report = db_storage.velocity_report()
+    assert report["by_role"] == []
+    assert report["by_recruiter"] == []
+
+
 def test_team_usage_current_load_counts_open_jobs_and_active_candidates(isolated_db):
     from gtm_sourcing_agent import auth
 
