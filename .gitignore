@@ -1,0 +1,28 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.env
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# frontend/ has its own .gitignore for node_modules, .next, etc. — this
+# root file only needs to cover the Python side of the project.
+
+# Per-role working data — candidate PII and recruiter notes should not be
+# committed by default. Remove specific role files from this ignore
+# deliberately if you want a role's workspace tracked in git.
+workspace/*.json
+!workspace/.gitkeep
+
+# SQLite DB (db_storage.py / Phase 1) — same candidate-PII reasoning as
+# workspace/*.json above.
+/data/

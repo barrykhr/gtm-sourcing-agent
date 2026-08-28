@@ -1,0 +1,91 @@
+@import "tailwindcss";
+
+/* Design tokens — enterprise SaaS pass. Indigo accent, refined zinc
+   neutrals, a small elevation scale. Referenced via Tailwind's
+   @theme inline below so `bg-surface`, `text-ink`, etc. work as
+   ordinary utility classes. */
+:root {
+  --background: #f8f9fb;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --foreground: #18181b;
+  --border: #e4e4e7;
+  --accent: #4f46e5;
+  --accent-hover: #4338ca;
+  --accent-contrast: #ffffff;
+  --shadow-sm: 0 1px 2px 0 rgb(24 24 27 / 0.04), 0 1px 1px 0 rgb(24 24 27 / 0.03);
+  --shadow-md: 0 4px 12px -2px rgb(24 24 27 / 0.08), 0 2px 4px -2px rgb(24 24 27 / 0.04);
+  --shadow-lg: 0 12px 32px -8px rgb(24 24 27 / 0.16), 0 4px 8px -4px rgb(24 24 27 / 0.06);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-foreground: var(--foreground);
+  --color-accent: var(--accent);
+  --font-sans: var(--font-inter);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0b0b0d;
+    --surface: #16161a;
+    --surface-raised: #1c1c21;
+    --foreground: #f4f4f5;
+    --border: #2a2a30;
+    --accent: #818cf8;
+    --accent-hover: #a5b4fc;
+    --accent-contrast: #0b0b0d;
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.4);
+    --shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.5);
+    --shadow-lg: 0 12px 32px -8px rgb(0 0 0 / 0.6);
+  }
+}
+
+* {
+  border-color: var(--border);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+/* Consistent, visible keyboard focus everywhere. Buttons/links get an
+   offset outline ring; text inputs already show focus via a border-color
+   change (each form control sets focus:border-accent) so they get a
+   soft accent glow instead of a second, competing outline box. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+input:focus-visible, textarea:focus-visible, select:focus-visible {
+  outline: none;
+  border-radius: inherit;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+/* A slightly quieter scrollbar than the OS default, matching the rest of
+   the chrome instead of standing out against it. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 999px;
+  border: 2px solid var(--background);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  button, a, input, select, textarea {
+    transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
+  }
+}

@@ -1,0 +1,106 @@
+"""Session-based auth — Phase 7, extended to multiple accounts in Phase 8
+(docs/product-plan.md). Deliberately plain: this is a small-team
+recruiting tool with no per-user data isolation, not multi-tenant SaaS —
+every logged-in account sees every job. That's why this is a bearer
+session token in an HTTP-only cookie plus a shared-secret signup gate,
+not OAuth/SSO or a full user-management system with roles/permissions
+this product has no use for yet.
+
+Password hashing is PBKDF2-HMAC-SHA256 via the stdlib `hashlib` — no new
+dependency, and a deliberately conservative choice: correct salted
+hashing beats no hashing, and a heavier scheme (bcrypt/argon2) can
+replace this later without changing anything above this module, same
+"swap what's below" pattern as db_storage.py.
+"""
+
+import hashlib
+import os
+import secrets
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
+from sqlalchemy import select
+
+from . import db
+from .models_orm import Session, User
+
+SESSION_COOKIE_NAME = "gtm_session"
+SESSION_TTL = timedelta(days=14)
+_PBKDF2_ITERATIONS = 600_000
+
+# Optional invite-code gate on signup — unset (the default) means anyone
+# who can reach this server can create an account. Set it once a shared
+# workspace needs to control who joins.
+SIGNUP_CODE = os.environ.get("GTM_SIGNUP_CODE") or None
+
+
+def _hash_password(password: str, salt: str) -> str:
+    return hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt), _PBKDF2_ITERATIONS).hex()
+
+
+def signup_requires_code() -> bool:
+    return SIGNUP_CODE is not None
+
+
+def create_user(email: str, password: str, signup_code: str | None = None) -> dict[str, Any]:
+    """Any number of accounts, all sharing the same workspace — see
+    module docstring. Raises ValueError (mapped to 400 by the API layer)
+    on a duplicate email, a too-weak password, or a missing/wrong signup
+    code when one is configured."""
+    if SIGNUP_CODE is not None and signup_code != SIGNUP_CODE:
+        raise ValueError("invalid signup code")
+    if len(password) < 8:
+        raise ValueError("password must be at least 8 characters")
+    with db.get_session() as db_session:
+        if db_session.scalars(select(User).where(User.email == email)).first() is not None:
+            raise ValueError(f"an account already exists for '{email}' — log in instead")
+        salt = secrets.token_hex(16)
+        user = User(
+            id=f"user-{secrets.token_hex(8)}", email=email,
+            password_hash=_hash_password(password, salt), password_salt=salt,
+        )
+        db_session.add(user)
+        db_session.commit()
+        return {"id": user.id, "email": user.email}
+
+
+def verify_credentials(email: str, password: str) -> dict[str, Any] | None:
+    with db.get_session() as db_session:
+        user = db_session.scalars(select(User).where(User.email == email)).first()
+        if user is None:
+            return None
+        if _hash_password(password, user.password_salt) != user.password_hash:
+            return None
+        return {"id": user.id, "email": user.email}
+
+
+def create_session(user_id: str) -> str:
+    token = secrets.token_urlsafe(32)
+    with db.get_session() as db_session:
+        db_session.add(Session(token=token, user_id=user_id, expires_at=datetime.now(UTC) + SESSION_TTL))
+        db_session.commit()
+    return token
+
+
+def get_user_from_session(token: str) -> dict[str, Any] | None:
+    if not token:
+        return None
+    with db.get_session() as db_session:
+        session = db_session.get(Session, token)
+        if session is None:
+            return None
+        expires_at = session.expires_at.replace(tzinfo=UTC) if session.expires_at.tzinfo is None else session.expires_at
+        if expires_at < datetime.now(UTC):
+            db_session.delete(session)
+            db_session.commit()
+            return None
+        user = db_session.get(User, session.user_id)
+        return {"id": user.id, "email": user.email} if user else None
+
+
+def delete_session(token: str) -> None:
+    with db.get_session() as db_session:
+        session = db_session.get(Session, token)
+        if session is not None:
+            db_session.delete(session)
+            db_session.commit()
