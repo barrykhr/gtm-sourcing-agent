@@ -16,6 +16,7 @@ import {
   JobDetail,
   JobLifecycleStatus,
   addCandidate,
+  bulkImportCandidates,
   cloneJob,
   getActivity,
   getCandidateGlobal,
@@ -25,6 +26,7 @@ import {
   listCandidates,
   markOutreachSent,
   outreachCandidate,
+  pollTaskUntilDone,
   prioritizeCandidate,
   runCalibrate,
   runIcp,
@@ -794,8 +796,9 @@ function CandidatesTab({
   const [sourceText, setSourceText] = useState("");
   const [roleFamily, setRoleFamily] = useState(job.role_family ?? "");
   const [sourceUrl, setSourceUrl] = useState("");
-  const [addMode, setAddMode] = useState<"paste" | "upload">("paste");
+  const [addMode, setAddMode] = useState<"paste" | "upload" | "bulk">("paste");
   const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [csvFile, setCsvFile] = useState<File | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [decisionDraft, setDecisionDraft] = useState<Record<string, string>>({});
@@ -873,6 +876,41 @@ function CandidatesTab({
     refresh();
   }
 
+  async function bulkImportCsv() {
+    if (!csvFile || !roleFamily.trim()) return;
+    setError(null);
+    setBusy("add");
+    try {
+      const result = await bulkImportCandidates(roleId, csvFile, roleFamily);
+      if (result.queued === 0) {
+        setError("No candidates found in that CSV — check that the 'notes' column has text in every row.");
+        return;
+      }
+      setBulkProgress({ done: 0, total: result.queued });
+      let done = 0;
+      const results = await Promise.allSettled(
+        result.task_ids.map((taskId) =>
+          pollTaskUntilDone(roleId, taskId).then((task) => {
+            done += 1;
+            setBulkProgress({ done, total: result.queued });
+            if (task.status === "failed") throw new Error(task.error ?? "import failed");
+          })
+        )
+      );
+      const failed = results.filter((r) => r.status === "rejected").length;
+      if (failed > 0) setError(`${failed} of ${result.queued} candidates failed to import.`);
+      setCsvFile(null);
+      setShowAddForm(false);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Bulk import failed.");
+    } finally {
+      setBulkProgress(null);
+      setBusy(null);
+      loadCandidates();
+      refresh();
+    }
+  }
+
   if (!job.status.icp) return <p className="text-sm text-zinc-500">Build the hiring profile first — candidates are evaluated against it.</p>;
 
   const unscored = (candidates ?? []).filter((c) => !c.prioritization);
@@ -935,7 +973,7 @@ function CandidatesTab({
         <Card title="Add a candidate">
           <div className="flex flex-col gap-3">
             <div className="flex gap-1 rounded-md border border-zinc-300 p-1 text-sm dark:border-zinc-700 w-fit">
-              {(["paste", "upload"] as const).map((m) => (
+              {(["paste", "upload", "bulk"] as const).map((m) => (
                 <button
                   key={m}
                   onClick={() => setAddMode(m)}
@@ -945,7 +983,7 @@ function CandidatesTab({
                       : "text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
                   }`}
                 >
-                  {m === "paste" ? "Paste text" : "Upload file"}
+                  {m === "paste" ? "Paste text" : m === "upload" ? "Upload file" : "Bulk CSV"}
                 </button>
               ))}
             </div>
@@ -956,7 +994,7 @@ function CandidatesTab({
                 placeholder="Paste resume text / LinkedIn profile text / recruiter notes…"
                 className="w-full rounded-md border border-zinc-300 p-3 text-sm outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-zinc-950"
               />
-            ) : (
+            ) : addMode === "upload" ? (
               <div>
                 <input
                   type="file"
@@ -966,6 +1004,26 @@ function CandidatesTab({
                 />
                 <p className="mt-1 text-xs text-zinc-500">PDF, DOCX, or TXT — text is extracted, then analysed same as pasted text.</p>
               </div>
+            ) : (
+              <div>
+                <input
+                  type="file"
+                  accept=".csv"
+                  onChange={(e) => setCsvFile(e.target.files?.[0] ?? null)}
+                  className="w-full rounded-md border border-zinc-300 p-3 text-sm outline-none file:mr-3 file:rounded file:border-0 file:bg-zinc-100 file:px-3 file:py-1.5 file:text-sm file:font-medium hover:file:bg-zinc-200 dark:border-zinc-700 dark:bg-zinc-950 dark:file:bg-zinc-800 dark:hover:file:bg-zinc-700"
+                />
+                <p className="mt-1 text-xs text-zinc-500">
+                  One row per candidate. Needs a <code className="rounded bg-zinc-100 px-1 dark:bg-zinc-800">notes</code>{" "}
+                  column (resume text or recruiter notes) — an optional{" "}
+                  <code className="rounded bg-zinc-100 px-1 dark:bg-zinc-800">source_url</code> column too. Other columns
+                  are ignored.
+                </p>
+                {bulkProgress && (
+                  <p className="mt-2 text-sm font-medium text-indigo-700 dark:text-indigo-400">
+                    Importing {bulkProgress.done}/{bulkProgress.total}…
+                  </p>
+                )}
+              </div>
             )}
 
             <div className="flex flex-wrap gap-2">
@@ -973,10 +1031,12 @@ function CandidatesTab({
                 value={roleFamily} onChange={(e) => setRoleFamily(e.target.value)} placeholder="role family (sales, csm…)"
                 className="flex-1 min-w-40 rounded-md border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-zinc-950"
               />
-              <input
-                value={sourceUrl} onChange={(e) => setSourceUrl(e.target.value)} placeholder="source URL (optional)"
-                className="flex-1 min-w-40 rounded-md border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-zinc-950"
-              />
+              {addMode !== "bulk" && (
+                <input
+                  value={sourceUrl} onChange={(e) => setSourceUrl(e.target.value)} placeholder="source URL (optional)"
+                  className="flex-1 min-w-40 rounded-md border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-zinc-950"
+                />
+              )}
               {addMode === "paste" ? (
                 <ActionButton
                   label="Add candidate" busyLabel="Analysing…" busy={busy === "add"}
@@ -987,7 +1047,7 @@ function CandidatesTab({
                     })
                   }
                 />
-              ) : (
+              ) : addMode === "upload" ? (
                 <ActionButton
                   label="Upload & add" busyLabel="Analysing…" busy={busy === "add"}
                   disabled={!uploadFile || !roleFamily.trim()}
@@ -996,6 +1056,12 @@ function CandidatesTab({
                       setUploadFile(null); setSourceUrl(""); setShowAddForm(false);
                     })
                   }
+                />
+              ) : (
+                <ActionButton
+                  label="Import candidates" busyLabel="Importing…" busy={busy === "add"}
+                  disabled={!csvFile || !roleFamily.trim()}
+                  onClick={bulkImportCsv}
                 />
               )}
             </div>

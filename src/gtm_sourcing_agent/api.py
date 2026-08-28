@@ -637,6 +637,59 @@ async def upload_candidate(
     })
 
 
+@app.post("/jobs/{role_id}/candidates/bulk-import", status_code=202)
+async def bulk_import_candidates(
+    role_id: str, request: Request, file: UploadFile = File(...), role_family: str = Form(...),
+) -> dict[str, Any]:
+    """CSV bulk import (Batch B): a recruiter adding candidates one at a
+    time all day is exactly the repetitive work this should remove. Same
+    add_candidate task the paste/upload routes above enqueue — just
+    triggered once per row instead of once per click, so there's no
+    separate stage or runner to maintain. Expects a 'notes' (or
+    'source_text'/'resume'/'text') column with each candidate's raw
+    resume/notes text, and an optional 'source_url' column; any other
+    columns are ignored rather than rejected, so an existing spreadsheet
+    export doesn't need reshaping first."""
+    if not db_storage.job_exists(role_id):
+        raise HTTPException(status_code=404, detail=f"job '{role_id}' not found")
+    content = await file.read()
+    try:
+        text = content.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise HTTPException(
+            status_code=400, detail="couldn't read that file as UTF-8 text — export the CSV as UTF-8 and try again"
+        ) from None
+
+    reader = csv.DictReader(io.StringIO(text))
+    if not reader.fieldnames:
+        raise HTTPException(status_code=400, detail="that CSV has no header row")
+    notes_col = next(
+        (c for c in reader.fieldnames if c.strip().lower() in ("notes", "source_text", "resume", "text")), None
+    )
+    if notes_col is None:
+        raise HTTPException(
+            status_code=400,
+            detail="CSV needs a 'notes' column with each candidate's resume/notes text",
+        )
+    url_col = next((c for c in reader.fieldnames if c.strip().lower() in ("source_url", "url", "link")), None)
+
+    task_ids: list[str] = []
+    skipped = 0
+    for row in reader:
+        source_text = (row.get(notes_col) or "").strip()
+        if not source_text:
+            skipped += 1
+            continue
+        source_url = (row.get(url_col) or "").strip() if url_col else ""
+        task = task_queue.enqueue(role_id, "add_candidate", {
+            "source_text": source_text, "role_family": role_family, "source_url": source_url,
+        })
+        task_ids.append(task["task_id"])
+
+    _log(request, role_id, "bulk-imported candidates (CSV)", detail=f"{len(task_ids)} queued, {skipped} skipped")
+    return {"task_ids": task_ids, "queued": len(task_ids), "skipped_empty_rows": skipped}
+
+
 @app.get("/jobs/{role_id}/candidates")
 def list_candidates(role_id: str) -> list[dict[str, Any]]:
     state = db_storage.load_role(role_id)

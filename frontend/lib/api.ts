@@ -341,6 +341,28 @@ export const uploadCandidate = async (roleId: string, file: File, roleFamily: st
   return waitForTask<Candidate>(roleId, await postForm<Task>(`/jobs/${roleId}/candidates/upload`, formData));
 };
 
+// Bulk CSV import (Batch B) — one add_candidate task per row, same task
+// the paste/upload routes above enqueue, just triggered N times from one
+// upload. Each id needs to be polled to completion separately (see
+// pollTaskUntilDone) since the server returns the queued ids, not results.
+export type BulkImportResult = { task_ids: string[]; queued: number; skipped_empty_rows: number };
+
+export const bulkImportCandidates = async (roleId: string, file: File, roleFamily: string) => {
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("role_family", roleFamily);
+  return postForm<BulkImportResult>(`/jobs/${roleId}/candidates/bulk-import`, formData);
+};
+
+export async function pollTaskUntilDone(roleId: string, taskId: string): Promise<Task> {
+  let current = await getTask(roleId, taskId);
+  while (current.status === "pending" || current.status === "running") {
+    await new Promise((resolve) => setTimeout(resolve, TASK_POLL_INTERVAL_MS));
+    current = await getTask(roleId, taskId);
+  }
+  return current;
+}
+
 export const prioritizeCandidate = async (roleId: string, candidateId: string) =>
   waitForTask<Json>(roleId, await post<Task>(`/jobs/${roleId}/candidates/${candidateId}/prioritize`));
 

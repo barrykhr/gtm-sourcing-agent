@@ -808,6 +808,64 @@ def test_share_link_lifecycle_and_public_route(isolated_db):
     assert after_revoke.status_code == 404
 
 
+def test_bulk_import_candidates_from_csv(isolated_db, fake_generate):
+    from gtm_sourcing_agent import db_storage
+    from gtm_sourcing_agent.models import Candidate
+
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    db_storage.merge_section("ae-role", "icp", {"must_have": ["SaaS"]})
+
+    csv_content = (
+        "name,notes,source_url\n"
+        "Jane,Enterprise AE with 5 years experience,https://linkedin.com/in/jane\n"
+        "Marcus,Senior AE closing $200k deals,\n"
+        ",,\n"  # empty row — should be skipped
+    ).encode("utf-8")
+
+    fake_generate.queue.append(Candidate(candidate_id="", name="Jane Doe"))
+    fake_generate.queue.append(Candidate(candidate_id="", name="Marcus Lee"))
+
+    resp = client.post(
+        "/jobs/ae-role/candidates/bulk-import",
+        files={"file": ("candidates.csv", csv_content, "text/csv")},
+        data={"role_family": "sales"},
+    )
+    assert resp.status_code == 202, resp.text
+    body = resp.json()
+    assert body["queued"] == 2
+    assert body["skipped_empty_rows"] == 1
+    assert len(body["task_ids"]) == 2
+
+    for task_id in body["task_ids"]:
+        task = _wait_for_task("ae-role", task_id)
+        assert task["status"] == "succeeded", task
+
+    candidates = client.get("/jobs/ae-role/candidates").json()
+    assert len(candidates) == 2
+
+
+def test_bulk_import_rejects_csv_without_notes_column(isolated_db):
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    csv_content = b"name,company\nJane,Acme\n"
+    resp = client.post(
+        "/jobs/ae-role/candidates/bulk-import",
+        files={"file": ("candidates.csv", csv_content, "text/csv")},
+        data={"role_family": "sales"},
+    )
+    assert resp.status_code == 400
+    assert "notes" in resp.json()["detail"]
+
+
+def test_bulk_import_404_for_missing_job(isolated_db):
+    csv_content = b"notes\nsome text\n"
+    resp = client.post(
+        "/jobs/does-not-exist/candidates/bulk-import",
+        files={"file": ("candidates.csv", csv_content, "text/csv")},
+        data={"role_family": "sales"},
+    )
+    assert resp.status_code == 404
+
+
 def test_public_route_404_for_unknown_token(isolated_db):
     from fastapi.testclient import TestClient as _TestClient
     from gtm_sourcing_agent.api import app as _app
