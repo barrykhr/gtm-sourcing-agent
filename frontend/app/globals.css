@@ -12,7 +12,12 @@
    utility classes — no more `shadow-[var(--shadow-sm)]` escape hatches
    needed in new code (existing ones still resolve fine, unchanged). */
 :root {
-  --background: #f7f6f2;
+  /* Without this, a browser/OS set to dark mode renders native form
+     controls (inputs, scrollbars) with dark UI regardless of our own
+     light tokens above — a light page with black input boxes, which is
+     almost certainly what read as "the app is dark." */
+  color-scheme: light;
+  --background: #faf9f6;
   --surface: #ffffff;
   --surface-raised: #ffffff;
   --foreground: #1c1a17;
@@ -78,32 +83,37 @@
   --font-serif: var(--font-fraunces);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #100f0d;
-    --surface: #181714;
-    --surface-raised: #1e1d19;
-    --foreground: #f3f2ee;
-    --muted-foreground: #9d9a90;
-    --border: #2c2a25;
-    --accent: #818cf8;
-    --accent-hover: #a5b4fc;
-    --accent-soft: #24244a;
-    --accent-contrast: #100f0d;
-    --wash: #4c3f8f;
+/* Light is the only rendered mode for now — deliberately not gated on
+   prefers-color-scheme. This app has no theme toggle yet, so following
+   the OS setting meant some visitors landed on the dark palette with no
+   way to switch, which read as "the app is dark" rather than "your
+   system prefers dark." The dark tokens stay defined and ready for a
+   real toggle later (:root[data-theme="dark"]), just not auto-applied. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --background: #100f0d;
+  --surface: #181714;
+  --surface-raised: #1e1d19;
+  --foreground: #f3f2ee;
+  --muted-foreground: #9d9a90;
+  --border: #2c2a25;
+  --accent: #818cf8;
+  --accent-hover: #a5b4fc;
+  --accent-soft: #24244a;
+  --accent-contrast: #100f0d;
+  --wash: #4c3f8f;
 
-    --success: #34d399;
-    --success-soft: #0b2e22;
-    --warning: #f2b13d;
-    --warning-soft: #3a2a0c;
-    --critical: #f38b83;
-    --critical-soft: #3a1512;
+  --success: #34d399;
+  --success-soft: #0b2e22;
+  --warning: #f2b13d;
+  --warning-soft: #3a2a0c;
+  --critical: #f38b83;
+  --critical-soft: #3a1512;
 
-    --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.35);
-    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.4);
-    --shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.5);
-    --shadow-lg: 0 12px 32px -8px rgb(0 0 0 / 0.6);
-  }
+  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.35);
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.4);
+  --shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.5);
+  --shadow-lg: 0 12px 32px -8px rgb(0 0 0 / 0.6);
 }
 
 * {
@@ -112,14 +122,6 @@
 
 body {
   background: var(--background);
-  /* Sarvam-style soft gradient wash — a lavender glow settling toward
-     the canvas color, not a hard-edged banner. Two overlapping radials
-     read as directional light rather than a flat diagonal band, which
-     is what tips a gradient into looking like an AI-cliché hero. */
-  background-image:
-    radial-gradient(ellipse 1300px 850px at 6% -12%, color-mix(in srgb, var(--wash) 55%, transparent), transparent 62%),
-    radial-gradient(ellipse 1000px 750px at 105% -8%, color-mix(in srgb, var(--accent) 20%, transparent), transparent 58%);
-  background-attachment: fixed;
   color: var(--foreground);
   font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";

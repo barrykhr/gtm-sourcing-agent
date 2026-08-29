@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import { Sidebar } from "@/components/Sidebar";
 import { TopBar } from "@/components/TopBar";
 import { AuthGate } from "@/components/AuthGate";
+import { GradientMesh } from "@/components/ui/GradientMesh";
 
 /** Decides the page chrome (Batch 1 redesign): /login gets a bare,
  * centered canvas (no app is logged into yet, nothing to navigate to);
@@ -17,20 +18,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
   if (pathname === "/login" || pathname.startsWith("/share/")) {
-    // A stronger version of the body's wash — the one moment in the app
+    // The strongest version of the mesh — the one moment in the app
     // that's allowed to look like a landing-page hero rather than a
     // workspace, since there's no data-dense content underneath it to
     // fight with.
     return (
-      <div
-        className="flex min-h-full items-center justify-center px-4 py-16"
-        style={{
-          backgroundColor: "var(--background)",
-          backgroundImage:
-            "radial-gradient(ellipse 1100px 750px at 12% -8%, color-mix(in srgb, var(--wash) 70%, transparent), transparent 60%), " +
-            "radial-gradient(ellipse 900px 700px at 95% 105%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 55%)",
-        }}
-      >
+      <div className="flex min-h-full items-center justify-center px-4 py-16">
+        <GradientMesh strength="hero" />
         {children}
       </div>
     );
@@ -38,6 +32,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-full">
+      <GradientMesh />
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar />
