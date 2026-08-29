@@ -22,6 +22,10 @@
   --accent-hover: #4338ca;
   --accent-soft: #eef0fd;
   --accent-contrast: #ffffff;
+  /* Atmosphere only, never an interactive color — the soft lavender
+     Sarvam washes its canvas in, kept separate from --accent so the
+     "click this" color stays unambiguous. */
+  --wash: #ccc3f7;
 
   --success: #047857;
   --success-soft: #ecfdf5;
@@ -86,6 +90,7 @@
     --accent-hover: #a5b4fc;
     --accent-soft: #24244a;
     --accent-contrast: #100f0d;
+    --wash: #4c3f8f;
 
     --success: #34d399;
     --success-soft: #0b2e22;
@@ -107,11 +112,13 @@
 
 body {
   background: var(--background);
-  background-image: radial-gradient(
-    ellipse 900px 500px at 15% -10%,
-    color-mix(in srgb, var(--accent) 7%, transparent),
-    transparent 60%
-  );
+  /* Sarvam-style soft gradient wash — a lavender glow settling toward
+     the canvas color, not a hard-edged banner. Two overlapping radials
+     read as directional light rather than a flat diagonal band, which
+     is what tips a gradient into looking like an AI-cliché hero. */
+  background-image:
+    radial-gradient(ellipse 1300px 850px at 6% -12%, color-mix(in srgb, var(--wash) 55%, transparent), transparent 62%),
+    radial-gradient(ellipse 1000px 750px at 105% -8%, color-mix(in srgb, var(--accent) 20%, transparent), transparent 58%);
   background-attachment: fixed;
   color: var(--foreground);
   font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;

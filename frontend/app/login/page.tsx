@@ -109,7 +109,7 @@ export default function LoginPage() {
         <p className="text-sm text-muted-foreground">Recruiter stays the decision-maker.</p>
       </div>
 
-      <div className="rounded-xl border border-[var(--border)] bg-surface p-6 shadow-md">
+      <div className="rounded-2xl border border-[var(--border)] bg-surface p-6 shadow-lg">
         {googleClientId && (
           <>
             <div ref={googleButtonRef} className="mb-4 flex justify-center" />

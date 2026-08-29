@@ -17,7 +17,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
   if (pathname === "/login" || pathname.startsWith("/share/")) {
-    return <div className="flex min-h-full items-center justify-center bg-background px-4 py-16">{children}</div>;
+    // A stronger version of the body's wash — the one moment in the app
+    // that's allowed to look like a landing-page hero rather than a
+    // workspace, since there's no data-dense content underneath it to
+    // fight with.
+    return (
+      <div
+        className="flex min-h-full items-center justify-center px-4 py-16"
+        style={{
+          backgroundColor: "var(--background)",
+          backgroundImage:
+            "radial-gradient(ellipse 1100px 750px at 12% -8%, color-mix(in srgb, var(--wash) 70%, transparent), transparent 60%), " +
+            "radial-gradient(ellipse 900px 700px at 95% 105%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 55%)",
+        }}
+      >
+        {children}
+      </div>
+    );
   }
 
   return (
