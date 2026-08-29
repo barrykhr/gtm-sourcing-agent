@@ -20,6 +20,8 @@ dependencies = [
     "python-multipart>=0.0.9",  # FastAPI's multipart/form-data (file upload) parsing
     "pypdf>=4.0",  # resume PDF text extraction (Phase 8)
     "python-docx>=1.1",  # resume DOCX text extraction (Phase 8)
+    "psycopg2-binary>=2.9",  # Postgres driver, used when DATABASE_URL is set (db.py)
+    "google-auth>=2.28",  # verifies Google Identity Services sign-in tokens (auth.py)
 ]
 
 [project.optional-dependencies]

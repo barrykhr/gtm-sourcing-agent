@@ -54,13 +54,14 @@ export type Json = Record<string, any>;
 // isn't OAuth/SSO or per-user data isolation.
 
 export type AuthUser = { id: string; email: string };
-export type AuthStatus = { signup_requires_code: boolean };
+export type AuthStatus = { signup_requires_code: boolean; google_client_id: string | null };
 
 export const getAuthStatus = () => get<AuthStatus>("/auth/status");
 export const getMe = () => get<AuthUser>("/auth/me");
 export const signup = (email: string, password: string, signupCode?: string) =>
   post<AuthUser>("/auth/signup", { email, password, signup_code: signupCode ?? null });
 export const login = (email: string, password: string) => post<AuthUser>("/auth/login", { email, password });
+export const googleLogin = (credential: string) => post<AuthUser>("/auth/google", { credential });
 export const logout = () => post<{ status: string }>("/auth/logout");
 
 // ── types (only the fields the UI actually reads) ─────────────────────────

@@ -104,3 +104,58 @@ def delete_session(token: str) -> None:
         if session is not None:
             db_session.delete(session)
             db_session.commit()
+
+
+# ── Google Sign-In (optional) ────────────────────────────────────────────
+# Verifies a Google Identity Services ID token obtained client-side; no
+# client secret needed since we only verify a signed token, never do a
+# server-side code exchange. Unset GTM_GOOGLE_CLIENT_ID (the default)
+# means the "Continue with Google" button never appears — see
+# api.py's /auth/status and /auth/google.
+GOOGLE_CLIENT_ID = os.environ.get("GTM_GOOGLE_CLIENT_ID") or None
+# Optional allowlist so a personal Gmail address can't self-provision an
+# account into an internal workspace — e.g. GTM_GOOGLE_ALLOWED_DOMAIN=
+# acme.com only accepts someone@acme.com. Unset (the default) accepts any
+# verified Google account, same "open unless configured" default as
+# SIGNUP_CODE above.
+GOOGLE_ALLOWED_DOMAIN = os.environ.get("GTM_GOOGLE_ALLOWED_DOMAIN") or None
+
+
+def _verify_google_id_token(credential: str) -> str:
+    """Returns the verified, email_verified email from a Google Identity
+    Services credential. A separate top-level function (not inlined into
+    google_login) so tests can monkeypatch it instead of hitting Google's
+    network endpoint — same "swap what's below" pattern as db_storage.py."""
+    from google.auth.transport import requests as google_requests
+    from google.oauth2 import id_token as google_id_token
+
+    claims = google_id_token.verify_oauth2_token(credential, google_requests.Request(), GOOGLE_CLIENT_ID)
+    if not claims.get("email_verified"):
+        raise ValueError("Google account email is not verified")
+    return claims["email"]
+
+
+def google_login(credential: str) -> dict[str, Any]:
+    """Verify a Google Identity Services credential and get-or-create the
+    matching account (password-less — password_hash/password_salt are
+    still populated with an unusable random value so the column stays
+    non-null, but this account can never log in with a password). Raises
+    ValueError (mapped to 400 by the API layer) if Google sign-in isn't
+    configured, the token is invalid, or the email's domain isn't
+    allowlisted."""
+    if GOOGLE_CLIENT_ID is None:
+        raise ValueError("Google sign-in is not configured on this server")
+    email = _verify_google_id_token(credential)
+    if GOOGLE_ALLOWED_DOMAIN is not None and not email.lower().endswith(f"@{GOOGLE_ALLOWED_DOMAIN.lower()}"):
+        raise ValueError(f"'{email}' is not on the allowed domain for this workspace")
+    with db.get_session() as db_session:
+        user = db_session.scalars(select(User).where(User.email == email)).first()
+        if user is None:
+            salt = secrets.token_hex(16)
+            user = User(
+                id=f"user-{secrets.token_hex(8)}", email=email,
+                password_hash=_hash_password(secrets.token_urlsafe(32), salt), password_salt=salt,
+            )
+            db_session.add(user)
+            db_session.commit()
+        return {"id": user.id, "email": user.email}

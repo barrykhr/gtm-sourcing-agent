@@ -44,7 +44,7 @@ logger = logging.getLogger(__name__)
 # so a route can never be accidentally left unguarded. See auth.py's
 # module docstring for why this is plain session auth, not OAuth/SSO.
 
-_PUBLIC_PATHS = {"/health", "/auth/signup", "/auth/login", "/auth/status"}
+_PUBLIC_PATHS = {"/health", "/auth/signup", "/auth/login", "/auth/status", "/auth/google"}
 _COOKIE_SECURE = os.environ.get("GTM_COOKIE_SECURE", "false").lower() == "true"
 # SameSite=Lax (the default) is right for local dev, where the frontend
 # and API share a host. A split-host deployment (frontend and API on
@@ -113,9 +113,16 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class GoogleAuthRequest(BaseModel):
+    credential: str
+
+
 @app.get("/auth/status")
 def auth_status() -> dict[str, Any]:
-    return {"signup_requires_code": auth.signup_requires_code()}
+    return {
+        "signup_requires_code": auth.signup_requires_code(),
+        "google_client_id": auth.GOOGLE_CLIENT_ID,
+    }
 
 
 @app.post("/auth/signup")
@@ -131,6 +138,14 @@ def login(body: LoginRequest, response: Response) -> dict[str, Any]:
     user = auth.verify_credentials(body.email, body.password)
     if user is None:
         raise HTTPException(status_code=401, detail="incorrect email or password")
+    token = auth.create_session(user["id"])
+    _set_session_cookie(response, token)
+    return user
+
+
+@app.post("/auth/google")
+def google_auth(body: GoogleAuthRequest, response: Response) -> dict[str, Any]:
+    user = _run_stage(auth.google_login, body.credential)
     token = auth.create_session(user["id"])
     _set_session_cookie(response, token)
     return user

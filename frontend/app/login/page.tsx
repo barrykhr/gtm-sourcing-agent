@@ -1,15 +1,35 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Script from "next/script";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ApiError, getAuthStatus, login, signup } from "@/lib/api";
+import { ApiError, getAuthStatus, googleLogin, login, signup } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+
+declare global {
+  interface Window {
+    google?: {
+      accounts: {
+        id: {
+          initialize: (config: {
+            client_id: string;
+            callback: (response: { credential: string }) => void;
+          }) => void;
+          renderButton: (parent: HTMLElement, options: Record<string, unknown>) => void;
+        };
+      };
+    };
+  }
+}
 
 export default function LoginPage() {
   const router = useRouter();
   const { refresh } = useAuth();
   const [mode, setMode] = useState<"login" | "signup">("login");
   const [signupRequiresCode, setSignupRequiresCode] = useState(false);
+  const [googleClientId, setGoogleClientId] = useState<string | null>(null);
+  const [googleScriptLoaded, setGoogleScriptLoaded] = useState(false);
+  const googleButtonRef = useRef<HTMLDivElement>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [signupCode, setSignupCode] = useState("");
@@ -18,9 +38,40 @@ export default function LoginPage() {
 
   useEffect(() => {
     getAuthStatus()
-      .then((s) => setSignupRequiresCode(s.signup_requires_code))
+      .then((s) => {
+        setSignupRequiresCode(s.signup_requires_code);
+        setGoogleClientId(s.google_client_id);
+      })
       .catch(() => {});
   }, []);
+
+  // Google Identity Services calls this directly with the signed
+  // credential — it never goes through handleSubmit's email/password path.
+  async function handleGoogleCredential(response: { credential: string }) {
+    setBusy(true);
+    setError(null);
+    try {
+      await googleLogin(response.credential);
+      refresh();
+      router.replace("/");
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Google sign-in failed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!googleScriptLoaded || !googleClientId || !googleButtonRef.current || !window.google) return;
+    window.google.accounts.id.initialize({ client_id: googleClientId, callback: handleGoogleCredential });
+    window.google.accounts.id.renderButton(googleButtonRef.current, {
+      theme: "outline",
+      size: "large",
+      width: 320,
+      text: "continue_with",
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [googleScriptLoaded, googleClientId]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -43,6 +94,13 @@ export default function LoginPage() {
 
   return (
     <div className="flex w-full max-w-sm flex-col gap-6">
+      {googleClientId && (
+        <Script
+          src="https://accounts.google.com/gsi/client"
+          strategy="afterInteractive"
+          onLoad={() => setGoogleScriptLoaded(true)}
+        />
+      )}
       <div className="flex flex-col items-center gap-1 text-center">
         <div className="mb-1 flex h-9 w-9 items-center justify-center rounded-lg bg-accent text-sm font-bold text-white">
           T
@@ -52,6 +110,16 @@ export default function LoginPage() {
       </div>
 
       <div className="rounded-xl border border-zinc-200 bg-surface p-6 shadow-[var(--shadow-md)] dark:border-zinc-800">
+        {googleClientId && (
+          <>
+            <div ref={googleButtonRef} className="mb-4 flex justify-center" />
+            <div className="mb-4 flex items-center gap-3">
+              <div className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
+              <span className="text-xs text-zinc-400">or</span>
+              <div className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
+            </div>
+          </>
+        )}
         <div className="mb-5 flex gap-1 rounded-md border border-zinc-200 p-1 dark:border-zinc-800">
           {(["login", "signup"] as const).map((m) => (
             <button

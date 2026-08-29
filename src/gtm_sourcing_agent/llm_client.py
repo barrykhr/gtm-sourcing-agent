@@ -23,7 +23,7 @@ ModelT = TypeVar("ModelT", bound=BaseModel)
 PROMPTS_DIR = os.path.join(os.path.dirname(__file__), "prompts")
 _jinja_env = Environment(loader=FileSystemLoader(PROMPTS_DIR), keep_trailing_newline=True)
 
-DEFAULT_MODEL = "claude-opus-5"
+DEFAULT_MODEL = "claude-sonnet-5"
 DEFAULT_MAX_TOKENS = 16000
 
 SYSTEM_PROMPT = (

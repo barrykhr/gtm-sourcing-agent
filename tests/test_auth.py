@@ -26,7 +26,7 @@ def test_unauthenticated_request_is_rejected(isolated_db):
 
 def test_health_and_auth_status_are_public(isolated_db):
     assert client.get("/health").status_code == 200
-    assert client.get("/auth/status").json() == {"signup_requires_code": False}
+    assert client.get("/auth/status").json() == {"signup_requires_code": False, "google_client_id": None}
 
 
 def test_signup_then_authenticated_request_succeeds(isolated_db):
@@ -60,7 +60,7 @@ def test_signup_rejects_short_password(isolated_db):
 
 def test_signup_code_gate(isolated_db, monkeypatch):
     monkeypatch.setattr(auth, "SIGNUP_CODE", "let-me-in")
-    assert client.get("/auth/status").json() == {"signup_requires_code": True}
+    assert client.get("/auth/status").json() == {"signup_requires_code": True, "google_client_id": None}
 
     wrong = client.post("/auth/signup", json={"email": "r@example.com", "password": "hunter22"})
     assert wrong.status_code == 400
@@ -113,3 +113,56 @@ def test_two_accounts_share_the_same_workspace(isolated_db):
     client.post("/auth/signup", json={"email": "r2@example.com", "password": "hunter22"})
     jobs = client.get("/jobs").json()
     assert any(j["role_id"] == "shared-job" for j in jobs)
+
+
+# ── Google Sign-In ──────────────────────────────────────────────────────
+# _verify_google_id_token is the one function that talks to Google's
+# network endpoint — monkeypatched everywhere below, same "swap what's
+# below" pattern mock_llm_server.py uses for llm_client.generate.
+
+
+def test_google_login_is_400_when_not_configured(isolated_db):
+    assert auth.GOOGLE_CLIENT_ID is None  # unset by default in this test env
+    resp = client.post("/auth/google", json={"credential": "whatever"})
+    assert resp.status_code == 400
+    assert "not configured" in resp.json()["detail"]
+
+
+def test_google_login_creates_account_and_authenticates(isolated_db, monkeypatch):
+    monkeypatch.setattr(auth, "GOOGLE_CLIENT_ID", "test-client-id")
+    monkeypatch.setattr(auth, "_verify_google_id_token", lambda credential: "recruiter@example.com")
+    resp = client.post("/auth/google", json={"credential": "signed-token"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["email"] == "recruiter@example.com"
+    assert client.get("/auth/me").json()["email"] == "recruiter@example.com"
+
+
+def test_google_login_is_idempotent_for_the_same_email(isolated_db, monkeypatch):
+    monkeypatch.setattr(auth, "GOOGLE_CLIENT_ID", "test-client-id")
+    monkeypatch.setattr(auth, "_verify_google_id_token", lambda credential: "recruiter@example.com")
+    first = client.post("/auth/google", json={"credential": "token-1"}).json()
+    client.post("/auth/logout")
+    second = client.post("/auth/google", json={"credential": "token-2"}).json()
+    assert first["id"] == second["id"]
+
+
+def test_google_login_enforces_allowed_domain(isolated_db, monkeypatch):
+    monkeypatch.setattr(auth, "GOOGLE_CLIENT_ID", "test-client-id")
+    monkeypatch.setattr(auth, "GOOGLE_ALLOWED_DOMAIN", "acme.com")
+    monkeypatch.setattr(auth, "_verify_google_id_token", lambda credential: "outsider@gmail.com")
+    resp = client.post("/auth/google", json={"credential": "signed-token"})
+    assert resp.status_code == 400
+    assert "not on the allowed domain" in resp.json()["detail"]
+
+    monkeypatch.setattr(auth, "_verify_google_id_token", lambda credential: "recruiter@acme.com")
+    resp = client.post("/auth/google", json={"credential": "signed-token"})
+    assert resp.status_code == 200, resp.text
+
+
+def test_google_created_account_cannot_log_in_with_a_password(isolated_db, monkeypatch):
+    monkeypatch.setattr(auth, "GOOGLE_CLIENT_ID", "test-client-id")
+    monkeypatch.setattr(auth, "_verify_google_id_token", lambda credential: "recruiter@example.com")
+    client.post("/auth/google", json={"credential": "signed-token"})
+    client.cookies.clear()
+    resp = client.post("/auth/login", json={"email": "recruiter@example.com", "password": "guessed-password"})
+    assert resp.status_code == 401
