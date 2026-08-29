@@ -16,6 +16,20 @@ but reject" means for this role):
 {{ calibration_json }}
 ---
 
+Questions already asked in earlier generations for this same role — do
+not repeat these, and do not lightly rephrase one of them into a
+near-duplicate. Find genuinely different angles into the same ICP and
+calibration material instead:
+---
+{{ prior_questions_text }}
+---
+
+Produce at least 10 questions in total across the three groups below —
+thin coverage (one or two questions per group) is not acceptable; go
+deep enough into the ICP's must-haves and the calibration's red flags
+that a hiring manager could run a full interview loop from this set
+alone.
+
 For every question, state `why_it_matters` — which must-have, red flag,
 or ambiguity from the material above it's meant to validate. A question
 with no clear reason to ask is not useful here.

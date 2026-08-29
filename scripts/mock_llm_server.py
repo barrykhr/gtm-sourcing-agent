@@ -176,30 +176,64 @@ def _fake_screening(**_) -> ScreeningQuestionSet:
     )
 
 
+_interview_question_generation_counter = {"n": 0}
+
+# Larger than what's picked per generation, so successive calls rotate
+# through a different subset — a stand-in for "the model found new
+# angles instead of repeating itself," so the generation-history UI has
+# something real to show across multiple regenerations.
+_CORE_QUESTION_POOL = [
+    ("Walk me through your last 3 closed deals — ACV, cycle length, and how self-sourced they were.",
+     "Validates the $1M+ quota / enterprise-closing must-have."),
+    ("How did you break into net-new accounts vs. expand existing ones?",
+     "Confirms hunter vs. farmer mix expected for this seat."),
+    ("Describe your typical sales cycle from first meeting to signature — who else gets involved along the way?",
+     "Validates enterprise cycle complexity and multi-stakeholder navigation."),
+    ("What CRM and forecasting discipline have you used to manage a $1M+ pipeline?",
+     "Validates process rigor expected at this quota level."),
+    ("How do you build a business case that survives a procurement or legal review?",
+     "Probes enterprise deal-closing mechanics beyond the initial pitch."),
+    ("What does a strong month-over-month pipeline-generation cadence look like for you, concretely?",
+     "Confirms self-sourced pipeline habit, not just working inbound leads."),
+]
+_ROLE_SPECIFIC_QUESTION_POOL = [
+    ("Have you sold into industrial/manufacturing buyers before? What was different about that sales motion?",
+     "This role's ICP calls out industrial/manufacturing domain as nice-to-have."),
+    ("How do you adapt your pitch for a technical buyer vs. an economic buyer in the same deal?",
+     "Validates multi-stakeholder selling for this segment."),
+    ("What's the largest deal you've closed, and who were the internal champions who got it over the line?",
+     "Confirms deal-size fit for this seat."),
+    ("Tell me about a deal where the technical evaluation nearly killed it — how did you keep it alive?",
+     "Probes domain credibility with technical buyers, called out in the ICP."),
+    ("How would you segment and prioritize a territory in this industry if you started today?",
+     "Validates territory-planning skill specific to this role's market."),
+]
+_RED_FLAG_QUESTION_POOL = [
+    ("Tell me about a quarter you missed — what happened and what did you change?",
+     "Probes the calibration's red flag: inconsistent attainment."),
+    ("Have you ever inherited a book of business rather than sourced it yourself? How much of your number came from each?",
+     "Probes self-sourced vs. inherited pipeline, a common looks-good-on-paper-but-reject pattern."),
+    ("Describe a deal you lost late-stage — what would you do differently with what you know now?",
+     "Probes resilience and deal-qualification discipline."),
+    ("Walk me through a time a deal stalled in legal or procurement for months — how did you keep it moving?",
+     "Probes the calibration's red flag around deals that stall and never close."),
+]
+
+
 def _fake_interview_questions(**_) -> RoleInterviewQuestions:
+    offset = _interview_question_generation_counter["n"]
+    _interview_question_generation_counter["n"] += 1
+
+    def _pick(pool: list[tuple[str, str]], count: int) -> list[InterviewQuestion]:
+        return [
+            InterviewQuestion(question=q, why_it_matters=w)
+            for q, w in (pool[(offset + i) % len(pool)] for i in range(count))
+        ]
+
     return RoleInterviewQuestions(
-        core_questions=[
-            InterviewQuestion(
-                question="Walk me through your last 3 closed deals — ACV, cycle length, and how self-sourced they were.",
-                why_it_matters="Validates the $1M+ quota / enterprise-closing must-have.",
-            ),
-            InterviewQuestion(
-                question="How did you break into net-new accounts vs. expand existing ones?",
-                why_it_matters="Confirms hunter vs. farmer mix expected for this seat.",
-            ),
-        ],
-        role_specific_questions=[
-            InterviewQuestion(
-                question="Have you sold into industrial/manufacturing buyers before? What was different about that sales motion?",
-                why_it_matters="This role's ICP calls out industrial/manufacturing domain as nice-to-have.",
-            ),
-        ],
-        red_flag_questions=[
-            InterviewQuestion(
-                question="Tell me about a quarter you missed — what happened and what did you change?",
-                why_it_matters="Probes the calibration's red flag: inconsistent attainment.",
-            ),
-        ],
+        core_questions=_pick(_CORE_QUESTION_POOL, 4),
+        role_specific_questions=_pick(_ROLE_SPECIFIC_QUESTION_POOL, 3),
+        red_flag_questions=_pick(_RED_FLAG_QUESTION_POOL, 3),
     )
 
 

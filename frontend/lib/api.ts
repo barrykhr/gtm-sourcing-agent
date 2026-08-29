@@ -370,9 +370,16 @@ export type RoleInterviewQuestions = {
   role_specific_questions: InterviewQuestion[];
   red_flag_questions: InterviewQuestion[];
 };
+// A single call to the LLM is one generation; regenerating appends a new
+// one rather than overwriting — see interview_questions.py's docstring.
+export type InterviewQuestionGeneration = RoleInterviewQuestions & {
+  generated_at: string;
+  repeated_questions: string[];
+};
+export type InterviewQuestionHistory = { generations: InterviewQuestionGeneration[] };
 
 export const runInterviewQuestions = async (roleId: string) =>
-  waitForTask<RoleInterviewQuestions>(roleId, await post<Task>(`/jobs/${roleId}/interview-questions`));
+  waitForTask<InterviewQuestionHistory>(roleId, await post<Task>(`/jobs/${roleId}/interview-questions`));
 
 // ── candidates ─────────────────────────────────────────────────────────
 

@@ -13,6 +13,7 @@ import {
   JOB_LIFECYCLE_LABELS,
   JOB_LIFECYCLE_STATUSES,
   Json,
+  InterviewQuestionHistory,
   JobDetail,
   JobLifecycleStatus,
   RoleRecruiter,
@@ -753,25 +754,93 @@ function QuestionList({ items }: { items?: { question: string; why_it_matters: s
 
 function InterviewQuestionsTab({ job, busy, runAction }: StageProps) {
   const icp: Json | undefined = job.state.icp;
-  const questions: Json | undefined = job.state.interview_questions;
+  const history: InterviewQuestionHistory | undefined = job.state.interview_questions;
+  const generations = history?.generations ?? [];
+  const [selected, setSelected] = useState<number | null>(null);
+  const [prevGenerationCount, setPrevGenerationCount] = useState(generations.length);
+
+  // A regenerate that lands (generation count changes) always jumps the
+  // view back to the newest one — a hand-picked older generation doesn't
+  // stick past the action that made it stale. Adjusting state during
+  // render from a prop change, React's recommended pattern for this,
+  // rather than an effect (see EditableCriteriaList above for the same
+  // pattern already established in this file).
+  if (generations.length !== prevGenerationCount) {
+    setPrevGenerationCount(generations.length);
+    setSelected(null);
+  }
 
   if (!icp) {
     return <p className="text-sm text-zinc-500">Build the hiring profile (ICP) on the Hiring Intelligence tab first.</p>;
   }
 
+  const shownIndex = selected ?? generations.length - 1;
+  const shown = generations[shownIndex];
+  const totalQuestions = generations.reduce(
+    (sum, g) => sum + g.core_questions.length + g.role_specific_questions.length + g.red_flag_questions.length,
+    0,
+  );
+
   return (
     <div className="flex flex-col gap-4">
-      <ActionButton
-        label={questions ? "Regenerate questions" : "Generate interview questions"}
-        busyLabel="Writing…" busy={busy === "interview_questions"}
-        onClick={() => runAction("interview_questions", () => runInterviewQuestions(job.role_id))}
-      />
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <ActionButton
+          label={generations.length > 0 ? "Regenerate questions" : "Generate interview questions"}
+          busyLabel="Writing…" busy={busy === "interview_questions"}
+          onClick={() => runAction("interview_questions", () => runInterviewQuestions(job.role_id))}
+        />
+        {generations.length > 0 && (
+          <p className="text-xs text-zinc-500">
+            {generations.length} generation{generations.length === 1 ? "" : "s"} · {totalQuestions} questions total
+          </p>
+        )}
+      </div>
 
-      {questions && (
-        <div className="grid gap-4 md:grid-cols-3">
-          <Card title="Core questions"><QuestionList items={questions.core_questions} /></Card>
-          <Card title="Specific to this role"><QuestionList items={questions.role_specific_questions} /></Card>
-          <Card title="Red-flag follow-ups"><QuestionList items={questions.red_flag_questions} /></Card>
+      {generations.length > 1 && (
+        <div className="flex flex-wrap gap-1.5">
+          {generations.map((g, i) => (
+            <button
+              key={i}
+              onClick={() => setSelected(i)}
+              className={`rounded-full border px-3 py-1 text-xs font-medium ${
+                i === shownIndex
+                  ? "border-indigo-600 bg-indigo-50 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-300"
+                  : "border-zinc-200 text-zinc-500 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-900"
+              }`}
+            >
+              Generation {i + 1}
+              {i === generations.length - 1 ? " (latest)" : ""}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {shown && (
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center justify-between text-xs text-zinc-500">
+            <span>
+              {shown.generated_at
+                ? `Generated ${new Date(shown.generated_at).toLocaleString()}`
+                : "Generated before this workspace tracked generation history"}
+            </span>
+            <span className="tabular-nums">
+              {shown.core_questions.length + shown.role_specific_questions.length + shown.red_flag_questions.length} questions
+            </span>
+          </div>
+
+          {shown.repeated_questions.length > 0 && (
+            <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+              {shown.repeated_questions.length} question{shown.repeated_questions.length === 1 ? "" : "s"} in this
+              generation closely match{shown.repeated_questions.length === 1 ? "es" : ""} one from an earlier
+              generation — not deduped automatically, surfaced so you can skip it in the interview.
+            </div>
+          )}
+
+          <div className="grid gap-4 md:grid-cols-3">
+            <Card title="Core questions"><QuestionList items={shown.core_questions} /></Card>
+            <Card title="Specific to this role"><QuestionList items={shown.role_specific_questions} /></Card>
+            <Card title="Red-flag follow-ups"><QuestionList items={shown.red_flag_questions} /></Card>
+          </div>
         </div>
       )}
     </div>

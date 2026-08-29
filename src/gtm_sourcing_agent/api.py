@@ -23,6 +23,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from . import auth, db_storage, orchestrator, pipeline, resume_extraction, task_queue, webhooks
 from .models.funnel import ForecastAssumptions
+from .models.interview_questions import InterviewQuestionHistory
 from .stages import calibration as calibration_stage
 from .stages import candidate_analysis as candidate_analysis_stage
 from .stages import funnel as funnel_stage
@@ -467,6 +468,11 @@ def get_job(role_id: str) -> dict[str, Any]:
     if not db_storage.job_exists(role_id):
         raise HTTPException(status_code=404, detail=f"job '{role_id}' not found")
     state = db_storage.load_role(role_id)
+    if state.get("interview_questions"):
+        # Read-time normalization: older roles still have the flat
+        # single-generation shape from before generation history existed
+        # (see InterviewQuestionHistory.from_raw's docstring).
+        state["interview_questions"] = InterviewQuestionHistory.from_raw(state["interview_questions"]).model_dump()
     jobs = {j["role_id"]: j for j in db_storage.list_jobs()}
     return {**jobs[role_id], **_job_summary(role_id), "state": state}
 

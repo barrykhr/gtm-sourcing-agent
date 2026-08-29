@@ -392,29 +392,61 @@ def test_analytics_overview_route(isolated_db, fake_generate):
     assert overview["decisions_pending"] == 1
 
 
-def test_interview_questions_route(isolated_db, fake_generate):
+def _ten_question_set(first_question: str = "Walk me through a deal."):
     from gtm_sourcing_agent.models import RoleInterviewQuestions
     from gtm_sourcing_agent.models.interview_questions import InterviewQuestion
 
+    return RoleInterviewQuestions(
+        core_questions=[
+            InterviewQuestion(question=first_question, why_it_matters="validates quota"),
+            InterviewQuestion(question="q2", why_it_matters="w2"),
+            InterviewQuestion(question="q3", why_it_matters="w3"),
+            InterviewQuestion(question="q4", why_it_matters="w4"),
+        ],
+        role_specific_questions=[
+            InterviewQuestion(question="q5", why_it_matters="w5"),
+            InterviewQuestion(question="q6", why_it_matters="w6"),
+            InterviewQuestion(question="q7", why_it_matters="w7"),
+        ],
+        red_flag_questions=[
+            InterviewQuestion(question="q8", why_it_matters="w8"),
+            InterviewQuestion(question="q9", why_it_matters="w9"),
+            InterviewQuestion(question="q10", why_it_matters="w10"),
+        ],
+    )
+
+
+def test_interview_questions_route(isolated_db, fake_generate):
     from gtm_sourcing_agent import db_storage
 
     client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
     db_storage.merge_section("ae-role", "icp", {"must_have": ["SaaS"]})
     db_storage.merge_section("ae-role", "calibration", {"red_flags": ["job-hopping"]})
 
-    fake_generate.queue.append(
-        RoleInterviewQuestions(
-            core_questions=[InterviewQuestion(question="Walk me through a deal.", why_it_matters="validates quota")],
-        )
-    )
+    fake_generate.queue.append(_ten_question_set())
     resp = client.post("/jobs/ae-role/interview-questions")
     assert resp.status_code == 202, resp.text
     task = _wait_for_task("ae-role", resp.json()["task_id"])
     assert task["status"] == "succeeded", task
-    assert task["result"]["core_questions"][0]["question"] == "Walk me through a deal."
+    # The task result and the job state are both the full generation
+    # history (append-only), not a single flat question set.
+    assert len(task["result"]["generations"]) == 1
+    assert task["result"]["generations"][0]["core_questions"][0]["question"] == "Walk me through a deal."
 
     job = client.get("/jobs/ae-role").json()
-    assert job["state"]["interview_questions"]["core_questions"][0]["question"] == "Walk me through a deal."
+    history = job["state"]["interview_questions"]
+    assert len(history["generations"]) == 1
+    assert history["generations"][0]["core_questions"][0]["question"] == "Walk me through a deal."
+
+    # Regenerating appends a second generation instead of overwriting the first.
+    fake_generate.queue.append(_ten_question_set(first_question="Walk me through a different deal."))
+    resp2 = client.post("/jobs/ae-role/interview-questions")
+    _wait_for_task("ae-role", resp2.json()["task_id"])
+    job = client.get("/jobs/ae-role").json()
+    history = job["state"]["interview_questions"]
+    assert len(history["generations"]) == 2
+    assert history["generations"][0]["core_questions"][0]["question"] == "Walk me through a deal."
+    assert history["generations"][1]["core_questions"][0]["question"] == "Walk me through a different deal."
 
 
 def test_team_usage_route(isolated_db, fake_generate):

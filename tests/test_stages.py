@@ -186,22 +186,123 @@ def test_interview_questions_requires_icp_and_calibration(isolated_workspace, fa
     assert fake_generate.calls == []
 
 
-def test_interview_questions_persists_and_varies_by_role(isolated_workspace, fake_generate):
+def _questions(*texts: str, n: int = 10) -> RoleInterviewQuestions:
+    """Builds a RoleInterviewQuestions with `n` total questions, the first
+    (or first len(texts)) named explicitly and the rest padded out —
+    keeps most tests above the MIN_QUESTIONS floor without hand-writing
+    ten questions inline every time."""
+    all_texts = list(texts) + [f"padding question {i}" for i in range(n - len(texts))]
+
+    def make(qs: list[str]) -> list[InterviewQuestion]:
+        return [InterviewQuestion(question=q, why_it_matters="w") for q in qs]
+
+    return RoleInterviewQuestions(
+        core_questions=make(all_texts[0::3]),
+        role_specific_questions=make(all_texts[1::3]),
+        red_flag_questions=make(all_texts[2::3]),
+    )
+
+
+def test_interview_questions_persists_first_generation(isolated_workspace, fake_generate):
     storage.merge_section("acme-ae-2026", "icp", {"must_have": ["SaaS"]})
     storage.merge_section("acme-ae-2026", "calibration", {"red_flags": ["job-hopping"]})
-    fixed = RoleInterviewQuestions(
-        core_questions=[InterviewQuestion(question="Walk me through a deal.", why_it_matters="validates quota")],
-    )
+    fixed = _questions("Walk me through a deal.")
     fake_generate.queue.append(fixed)
 
     result = interview_questions.run("acme-ae-2026")
 
-    assert result == fixed
-    assert storage.load_role("acme-ae-2026")["interview_questions"] == fixed.model_dump()
+    assert len(result.generations) == 1
+    assert result.generations[0].core_questions[0].question == "Walk me through a deal."
+    assert result.generations[0].generated_at  # a real timestamp, not left blank
+    persisted = storage.load_role("acme-ae-2026")["interview_questions"]
+    assert persisted == result.model_dump()
     prompt = fake_generate.calls[0]["prompt"]
     assert "SaaS" in prompt
     assert "job-hopping" in prompt
     assert fake_generate.calls[0]["stage"] == "interview_questions"
+
+
+def test_interview_questions_regeneration_appends_a_new_generation(isolated_workspace, fake_generate):
+    storage.merge_section("acme-ae-2026", "icp", {"must_have": ["SaaS"]})
+    storage.merge_section("acme-ae-2026", "calibration", {"red_flags": ["job-hopping"]})
+    fake_generate.queue.append(_questions("First-generation question."))
+    interview_questions.run("acme-ae-2026")
+
+    fake_generate.queue.append(_questions("Second-generation question."))
+    result = interview_questions.run("acme-ae-2026")
+
+    assert len(result.generations) == 2
+    assert result.generations[0].core_questions[0].question == "First-generation question."
+    assert result.generations[1].core_questions[0].question == "Second-generation question."
+    # the prompt for the second call includes the first generation's
+    # questions so the model can avoid repeating them
+    second_prompt = fake_generate.calls[1]["prompt"]
+    assert "First-generation question." in second_prompt
+
+
+def test_interview_questions_retries_once_when_under_the_minimum(isolated_workspace, fake_generate):
+    storage.merge_section("acme-ae-2026", "icp", {"must_have": ["SaaS"]})
+    storage.merge_section("acme-ae-2026", "calibration", {"red_flags": ["job-hopping"]})
+    too_few = RoleInterviewQuestions(
+        core_questions=[InterviewQuestion(question="Only one question.", why_it_matters="w")]
+    )
+    fake_generate.queue.append(too_few)
+    fake_generate.queue.append(_questions("Retried and sufficient."))
+
+    result = interview_questions.run("acme-ae-2026")
+
+    assert len(fake_generate.calls) == 2  # the retry actually happened
+    assert len(result.generations) == 1  # still one generation, not two
+    assert result.generations[0].core_questions[0].question == "Retried and sufficient."
+
+
+def test_interview_questions_keeps_shortfall_if_retry_does_not_improve(isolated_workspace, fake_generate):
+    storage.merge_section("acme-ae-2026", "icp", {"must_have": ["SaaS"]})
+    storage.merge_section("acme-ae-2026", "calibration", {"red_flags": ["job-hopping"]})
+    too_few = RoleInterviewQuestions(
+        core_questions=[InterviewQuestion(question="Original.", why_it_matters="w")]
+    )
+    still_too_few = RoleInterviewQuestions(
+        core_questions=[InterviewQuestion(question="Retry, still short.", why_it_matters="w")]
+    )
+    fake_generate.queue.append(too_few)
+    fake_generate.queue.append(still_too_few)
+
+    result = interview_questions.run("acme-ae-2026")
+
+    assert len(fake_generate.calls) == 2
+    # retry didn't add more questions than the original, so the original is kept
+    assert result.generations[0].core_questions[0].question == "Original."
+
+
+def test_interview_questions_flags_repeats_across_generations(isolated_workspace, fake_generate):
+    storage.merge_section("acme-ae-2026", "icp", {"must_have": ["SaaS"]})
+    storage.merge_section("acme-ae-2026", "calibration", {"red_flags": ["job-hopping"]})
+    fake_generate.queue.append(_questions("Walk me through your last deal."))
+    interview_questions.run("acme-ae-2026")
+
+    # same question, different casing/whitespace — still counts as a repeat
+    fake_generate.queue.append(_questions("  Walk me through your LAST deal.  "))
+    result = interview_questions.run("acme-ae-2026")
+
+    assert "  Walk me through your LAST deal.  " in result.generations[1].repeated_questions
+
+
+def test_interview_questions_normalizes_old_flat_shape_on_regeneration(isolated_workspace, fake_generate):
+    """Roles generated before this generation-history shape existed have
+    the old flat {core_questions, role_specific_questions,
+    red_flag_questions} dict persisted directly — regenerating on one of
+    those roles must not lose that data."""
+    storage.merge_section("acme-ae-2026", "icp", {"must_have": ["SaaS"]})
+    storage.merge_section("acme-ae-2026", "calibration", {"red_flags": ["job-hopping"]})
+    storage.merge_section("acme-ae-2026", "interview_questions", _questions("Pre-existing legacy question.").model_dump())
+
+    fake_generate.queue.append(_questions("New generation question."))
+    result = interview_questions.run("acme-ae-2026")
+
+    assert len(result.generations) == 2
+    assert result.generations[0].core_questions[0].question == "Pre-existing legacy question."
+    assert result.generations[1].core_questions[0].question == "New generation question."
 
 
 def test_reprioritizing_preserves_decision_and_placement(isolated_workspace, fake_generate):
