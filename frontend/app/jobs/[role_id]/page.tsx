@@ -15,19 +15,23 @@ import {
   Json,
   JobDetail,
   JobLifecycleStatus,
+  RoleRecruiter,
   addCandidate,
+  addRecruiter,
   bulkImportCandidates,
   cloneJob,
   getActivity,
   getCandidateGlobal,
   getFunnelReport,
   getJob,
+  getRecruiters,
   getWebhookConfig,
   listCandidates,
   markOutreachSent,
   outreachCandidate,
   pollTaskUntilDone,
   prioritizeCandidate,
+  removeRecruiter,
   runCalibrate,
   runIcp,
   runIntake,
@@ -120,6 +124,7 @@ export default function JobWorkspace() {
           <h1 className="font-display text-3xl tracking-tight">{job.title}</h1>
           {job.role_family && <p className="mt-1.5 text-sm text-muted-foreground">{job.role_family}</p>}
           <JobMetaRow job={job} refresh={refresh} />
+          <RecruitersRow roleId={job.role_id} />
         </div>
         <div className="flex shrink-0 items-center gap-2">
           <button
@@ -331,6 +336,104 @@ function JobMetaRow({ job, refresh }: { job: JobDetail; refresh: () => void }) {
           Generate client link
         </button>
       )}
+    </div>
+  );
+}
+
+// ── multi-recruiter assignment ──────────────────────────────────────────
+// A role's owner_email is the "primary" recruiter — kept in sync
+// server-side (db_storage.py's _sync_primary_recruiter). Contributors
+// are additional recruiters working the same role, purely additive.
+
+function RecruitersRow({ roleId }: { roleId: string }) {
+  const [recruiters, setRecruiters] = useState<RoleRecruiter[] | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [emailDraft, setEmailDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(() => {
+    getRecruiters(roleId).then(setRecruiters).catch(() => setRecruiters([]));
+  }, [roleId]);
+
+  useEffect(refresh, [refresh]);
+
+  async function submitAdd() {
+    if (!emailDraft.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const updated = await addRecruiter(roleId, emailDraft.trim());
+      setRecruiters(updated);
+      setEmailDraft("");
+      setAdding(false);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not add this recruiter.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove(email: string) {
+    setBusy(true);
+    try {
+      const updated = await removeRecruiter(roleId, email);
+      setRecruiters(updated);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!recruiters) return null;
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+      <span className="text-muted-foreground">Recruiters:</span>
+      {recruiters.map((r) => (
+        <span
+          key={r.email}
+          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 ${
+            r.assignment === "primary" ? "bg-accent-soft text-accent" : "bg-[var(--border)]/50 text-foreground"
+          }`}
+          title={r.assignment === "primary" ? "Primary recruiter" : "Contributor"}
+        >
+          {r.assignment === "primary" && (
+            <span className="text-[9px] font-semibold uppercase tracking-wide">Primary</span>
+          )}
+          {r.email}
+          {r.assignment === "contributor" && (
+            <button
+              onClick={() => remove(r.email)}
+              disabled={busy}
+              aria-label={`Remove ${r.email}`}
+              className="ml-0.5 text-muted-foreground hover:text-critical disabled:opacity-50"
+            >
+              ×
+            </button>
+          )}
+        </span>
+      ))}
+      {adding ? (
+        <span className="flex items-center gap-1">
+          <input
+            value={emailDraft}
+            onChange={(e) => setEmailDraft(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && submitAdd()}
+            placeholder="recruiter@company.com"
+            autoFocus
+            className="rounded border border-[var(--border)] px-1.5 py-0.5 text-xs outline-none focus:border-accent dark:bg-[var(--surface-raised)]"
+          />
+          <button onClick={submitAdd} disabled={busy} className="text-accent hover:underline">Add</button>
+          <button onClick={() => { setAdding(false); setError(null); }} className="text-muted-foreground hover:underline">
+            Cancel
+          </button>
+        </span>
+      ) : (
+        <button onClick={() => setAdding(true)} className="text-muted-foreground hover:text-accent hover:underline">
+          + Add recruiter
+        </button>
+      )}
+      {error && <span className="text-critical">{error}</span>}
     </div>
   );
 }
@@ -559,18 +662,30 @@ function HiringProfileTab({ job, busy, runAction }: StageProps) {
       )}
 
       {icp && (
-        <div className="grid gap-4 md:grid-cols-2">
-          <EditableCriteriaList
-            title="Must have" roleId={job.role_id} field="must_have" items={icp.must_have ?? []}
-            busy={busy} runAction={runAction}
-          />
-          <EditableCriteriaList
-            title="Nice to have" roleId={job.role_id} field="nice_to_have" items={icp.nice_to_have ?? []}
-            busy={busy} runAction={runAction}
-          />
-          <Card title="Transferable"><List items={icp.transferable} /></Card>
-          <Card title="Disqualifier"><List items={icp.disqualifier} /></Card>
-        </div>
+        <>
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-zinc-500">Hiring profile built.</p>
+            <button
+              onClick={() => runAction("icp", () => runIcp(job.role_id))}
+              disabled={busy === "icp"}
+              className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+            >
+              {busy === "icp" ? "Rebuilding…" : "Rebuild ICP"}
+            </button>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            <EditableCriteriaList
+              title="Must have" roleId={job.role_id} field="must_have" items={icp.must_have ?? []}
+              busy={busy} runAction={runAction}
+            />
+            <EditableCriteriaList
+              title="Nice to have" roleId={job.role_id} field="nice_to_have" items={icp.nice_to_have ?? []}
+              busy={busy} runAction={runAction}
+            />
+            <Card title="Transferable"><List items={icp.transferable} /></Card>
+            <Card title="Disqualifier"><List items={icp.disqualifier} /></Card>
+          </div>
+        </>
       )}
     </div>
   );

@@ -297,6 +297,10 @@ class JobOwnerRequest(BaseModel):
     owner_email: str | None = None
 
 
+class RecruiterAddRequest(BaseModel):
+    email: str
+
+
 class JobClientRequest(BaseModel):
     client_name: str | None = None
 
@@ -381,6 +385,25 @@ def set_job_owner(role_id: str, body: JobOwnerRequest, request: Request) -> dict
     job = _run_stage(db_storage.set_job_owner, role_id, body.owner_email)
     _log(request, role_id, "changed job owner", detail=body.owner_email or "(unassigned)")
     return {**job, **_job_summary(role_id)}
+
+
+@app.get("/jobs/{role_id}/recruiters")
+def get_recruiters(role_id: str) -> list[dict[str, Any]]:
+    return db_storage.list_recruiters(role_id)
+
+
+@app.post("/jobs/{role_id}/recruiters")
+def add_recruiter(role_id: str, body: RecruiterAddRequest, request: Request) -> list[dict[str, Any]]:
+    recruiters = _run_stage(db_storage.add_recruiter, role_id, body.email)
+    _log(request, role_id, "added recruiter", detail=body.email)
+    return recruiters
+
+
+@app.delete("/jobs/{role_id}/recruiters/{email}")
+def remove_recruiter(role_id: str, email: str, request: Request) -> list[dict[str, Any]]:
+    recruiters = _run_stage(db_storage.remove_recruiter, role_id, email)
+    _log(request, role_id, "removed recruiter", detail=email)
+    return recruiters
 
 
 @app.patch("/jobs/{role_id}/client")

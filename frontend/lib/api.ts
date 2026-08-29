@@ -194,6 +194,18 @@ export const setJobLifecycle = (roleId: string, lifecycleStatus: JobLifecycleSta
 export const setJobOwner = (roleId: string, ownerEmail: string | null) =>
   patch<JobSummary>(`/jobs/${roleId}/owner`, { owner_email: ownerEmail });
 
+// Multi-recruiter assignment — a role's owner_email is kept in sync as
+// the "primary" row here by the backend; contributors are purely
+// additive. See db_storage.py's _sync_primary_recruiter.
+export type RecruiterAssignment = "primary" | "contributor";
+export type RoleRecruiter = { email: string; assignment: RecruiterAssignment; added_at: string };
+
+export const getRecruiters = (roleId: string) => get<RoleRecruiter[]>(`/jobs/${roleId}/recruiters`);
+export const addRecruiter = (roleId: string, email: string) =>
+  post<RoleRecruiter[]>(`/jobs/${roleId}/recruiters`, { email });
+export const removeRecruiter = (roleId: string, email: string) =>
+  request<RoleRecruiter[]>(`/jobs/${roleId}/recruiters/${encodeURIComponent(email)}`, { method: "DELETE" });
+
 export const setJobClient = (roleId: string, clientName: string | null) =>
   patch<JobSummary>(`/jobs/${roleId}/client`, { client_name: clientName });
 
@@ -252,11 +264,24 @@ export const getTask = (roleId: string, taskId: string) => get<Task>(`/jobs/${ro
 export const listTasks = (roleId: string) => get<Task[]>(`/jobs/${roleId}/tasks`);
 
 const TASK_POLL_INTERVAL_MS = 250;
+// Real model calls take seconds, not minutes — 3 minutes of continuous
+// pending/running is a task that will never resolve on its own (a wedged
+// worker, a crashed process). Surfacing a real error beats an infinite
+// spinner that reads as "nothing happened" if the recruiter looks away
+// and comes back.
+const TASK_STALE_AFTER_MS = 3 * 60 * 1000;
 
 async function waitForTask<T>(roleId: string, task: Task, onStatus?: (t: Task) => void): Promise<T> {
   let current = task;
+  const startedAt = Date.now();
   onStatus?.(current);
   while (current.status === "pending" || current.status === "running") {
+    if (Date.now() - startedAt > TASK_STALE_AFTER_MS) {
+      throw new ApiError(
+        504,
+        "This is taking much longer than expected and may be stuck. Refresh and try again — if it keeps happening, the server may need attention.",
+      );
+    }
     await new Promise((resolve) => setTimeout(resolve, TASK_POLL_INTERVAL_MS));
     current = await getTask(roleId, current.task_id);
     onStatus?.(current);

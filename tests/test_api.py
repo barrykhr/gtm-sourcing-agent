@@ -810,6 +810,73 @@ def test_clone_job_inherits_cloning_recruiter_as_owner(isolated_db):
     assert resp.json()["owner_email"] == "recruiter@example.com"
 
 
+# ── multi-recruiter assignment ──────────────────────────────────────────
+
+
+def test_creating_a_job_seeds_the_creator_as_primary_recruiter(isolated_db):
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    resp = client.get("/jobs/ae-role/recruiters")
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == [{"email": "recruiter@example.com", "assignment": "primary", "added_at": resp.json()[0]["added_at"]}]
+
+
+def test_add_and_list_contributors(isolated_db):
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    resp = client.post("/jobs/ae-role/recruiters", json={"email": "contributor@example.com"})
+    assert resp.status_code == 200, resp.text
+    emails = [r["email"] for r in resp.json()]
+    assert emails == ["recruiter@example.com", "contributor@example.com"]
+    assert resp.json()[1]["assignment"] == "contributor"
+
+
+def test_cannot_add_the_same_recruiter_twice(isolated_db):
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    client.post("/jobs/ae-role/recruiters", json={"email": "contributor@example.com"})
+    resp = client.post("/jobs/ae-role/recruiters", json={"email": "contributor@example.com"})
+    assert resp.status_code == 400
+    assert "already assigned" in resp.json()["detail"]
+
+
+def test_cannot_add_the_primary_as_a_contributor(isolated_db):
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    resp = client.post("/jobs/ae-role/recruiters", json={"email": "recruiter@example.com"})
+    assert resp.status_code == 400
+    assert "already assigned" in resp.json()["detail"]
+
+
+def test_remove_contributor(isolated_db):
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    client.post("/jobs/ae-role/recruiters", json={"email": "contributor@example.com"})
+    resp = client.delete("/jobs/ae-role/recruiters/contributor@example.com")
+    assert resp.status_code == 200, resp.text
+    assert [r["email"] for r in resp.json()] == ["recruiter@example.com"]
+
+
+def test_cannot_remove_the_primary_recruiter_directly(isolated_db):
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    resp = client.delete("/jobs/ae-role/recruiters/recruiter@example.com")
+    assert resp.status_code == 400
+    assert "primary" in resp.json()["detail"]
+
+
+def test_reassigning_owner_updates_the_primary_recruiter(isolated_db):
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    client.patch("/jobs/ae-role/owner", json={"owner_email": "teammate@example.com"})
+    resp = client.get("/jobs/ae-role/recruiters")
+    assert [r["email"] for r in resp.json() if r["assignment"] == "primary"] == ["teammate@example.com"]
+    # the old primary isn't left behind as an orphaned row of any kind
+    assert "recruiter@example.com" not in [r["email"] for r in resp.json()]
+
+
+def test_promoting_a_contributor_to_primary_removes_the_contributor_row(isolated_db):
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    client.post("/jobs/ae-role/recruiters", json={"email": "contributor@example.com"})
+    client.patch("/jobs/ae-role/owner", json={"owner_email": "contributor@example.com"})
+    resp = client.get("/jobs/ae-role/recruiters").json()
+    assert len(resp) == 1
+    assert resp[0] == {"email": "contributor@example.com", "assignment": "primary", "added_at": resp[0]["added_at"]}
+
+
 # ── client tagging (Batch B) ────────────────────────────────────────────
 
 

@@ -54,6 +54,25 @@ class Job(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
 
 
+class JobRecruiter(Base):
+    """Multi-recruiter attribution on a role — a role can have several
+    recruiters contributing, not just the single owner_email Job carries.
+    `assignment` is "primary" or "contributor"; the primary row is kept
+    in sync with Job.owner_email by db_storage.set_job_owner() so every
+    existing owner_email-keyed read (velocity_report, team_usage, the
+    dashboard's "My jobs" filter) keeps working unmodified — contributor
+    rows are purely additive on top."""
+
+    __tablename__ = "job_recruiters"
+    __table_args__ = (UniqueConstraint("role_id", "email", name="uq_job_recruiter"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    role_id: Mapped[str] = mapped_column(ForeignKey("jobs.role_id"))
+    email: Mapped[str] = mapped_column(String)
+    assignment: Mapped[str] = mapped_column(String, default="contributor")
+    added_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
 class JobSection(Base):
     __tablename__ = "job_sections"
     __table_args__ = (UniqueConstraint("role_id", "section_key", name="uq_job_section"),)

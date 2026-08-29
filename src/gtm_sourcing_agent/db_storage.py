@@ -32,7 +32,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from . import db
-from .models_orm import ActivityLog, CandidateEvaluation, CanonicalCandidate, Job, JobSection, Task, User
+from .models_orm import ActivityLog, CandidateEvaluation, CanonicalCandidate, Job, JobRecruiter, JobSection, Task, User
 
 logger = logging.getLogger(__name__)
 
@@ -255,6 +255,8 @@ def create_job(
                 owner_email=owner_email or None, client_name=client_name or None,
             )
             session.add(job)
+            session.flush()
+            _sync_primary_recruiter(session, role_id, owner_email or None)
         else:
             if title:
                 job.title = title
@@ -291,14 +293,88 @@ def set_job_lifecycle(role_id: str, lifecycle_status: str) -> dict[str, Any]:
         return _job_dict(job)
 
 
+def _sync_primary_recruiter(session: Session, role_id: str, email: str | None) -> None:
+    """Keeps job_recruiters' one "primary" row in step with Job.owner_email
+    — called from create_job/set_job_owner so every existing owner_email
+    read stays correct while multi-recruiter attribution (Batch: recruiter
+    assignment) is purely additive on top. Never touches contributor rows."""
+    existing_primary = session.scalars(
+        select(JobRecruiter).where(JobRecruiter.role_id == role_id, JobRecruiter.assignment == "primary")
+    ).first()
+    if existing_primary is not None:
+        if existing_primary.email == email:
+            return
+        session.delete(existing_primary)
+    if email:
+        # A contributor being promoted to primary shouldn't also linger as
+        # a contributor row — same person, one assignment.
+        stale_contributor = session.scalars(
+            select(JobRecruiter).where(JobRecruiter.role_id == role_id, JobRecruiter.email == email)
+        ).first()
+        if stale_contributor is not None:
+            session.delete(stale_contributor)
+        session.flush()
+        session.add(JobRecruiter(role_id=role_id, email=email, assignment="primary"))
+
+
 def set_job_owner(role_id: str, owner_email: str | None) -> dict[str, Any]:
     with db.get_session() as session:
         job = session.get(Job, role_id)
         if job is None:
             raise ValueError(f"job '{role_id}' not found")
         job.owner_email = owner_email or None
+        _sync_primary_recruiter(session, role_id, owner_email or None)
         session.commit()
         return _job_dict(job)
+
+
+def list_recruiters(role_id: str) -> list[dict[str, Any]]:
+    """Every recruiter attributed to this role — the primary (kept in
+    sync with Job.owner_email) plus any contributors. Primary sorts
+    first, contributors by when they joined."""
+    with db.get_session() as session:
+        rows = session.scalars(select(JobRecruiter).where(JobRecruiter.role_id == role_id)).all()
+        ordered = sorted(rows, key=lambda r: (r.assignment != "primary", r.added_at))
+        return [
+            {"email": r.email, "assignment": r.assignment, "added_at": r.added_at}
+            for r in ordered
+        ]
+
+
+def add_recruiter(role_id: str, email: str) -> list[dict[str, Any]]:
+    """Adds `email` as a contributor on this role. Raises ValueError if the
+    job doesn't exist, the email is already the primary (nothing to add —
+    reassign primary via set_job_owner instead), or already a contributor."""
+    with db.get_session() as session:
+        job = session.get(Job, role_id)
+        if job is None:
+            raise ValueError(f"job '{role_id}' not found")
+        existing = session.scalars(
+            select(JobRecruiter).where(JobRecruiter.role_id == role_id, JobRecruiter.email == email)
+        ).first()
+        if existing is not None:
+            raise ValueError(f"'{email}' is already assigned to this role as {existing.assignment}")
+        session.add(JobRecruiter(role_id=role_id, email=email, assignment="contributor"))
+        session.commit()
+    return list_recruiters(role_id)
+
+
+def remove_recruiter(role_id: str, email: str) -> list[dict[str, Any]]:
+    """Removes a contributor. Refuses to remove the primary — reassign
+    ownership via set_job_owner (to another recruiter, or None) instead,
+    so a role is never left with a dangling owner_email/recruiter-row
+    mismatch."""
+    with db.get_session() as session:
+        row = session.scalars(
+            select(JobRecruiter).where(JobRecruiter.role_id == role_id, JobRecruiter.email == email)
+        ).first()
+        if row is None:
+            raise ValueError(f"'{email}' is not assigned to this role")
+        if row.assignment == "primary":
+            raise ValueError("can't remove the primary recruiter this way — reassign ownership instead")
+        session.delete(row)
+        session.commit()
+    return list_recruiters(role_id)
 
 
 def set_job_client(role_id: str, client_name: str | None) -> dict[str, Any]:
