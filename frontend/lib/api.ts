@@ -91,6 +91,11 @@ export type JobSummary = {
   share_token: string | null;
   lifecycle_status: JobLifecycleStatus;
   owner_email: string | null;
+  // Revenue basis (see revenue.py) — recruiter-entered, never AI-inferred.
+  // expected_revenue is role_value * REVENUE_MARGIN_PERCENTAGE, computed
+  // server-side; null (not 0) when role_value isn't set.
+  role_value: number | null;
+  expected_revenue: number | null;
   created_at: string;
   updated_at: string;
   status: PipelineStatus;
@@ -161,8 +166,13 @@ export type CanonicalCandidate = {
 
 export const listJobs = () => get<JobSummary[]>("/jobs");
 
-export const createJob = (title: string, role_family = "", role_id?: string, client_name = "") =>
-  post<JobSummary>("/jobs", { title, role_family, role_id, client_name });
+export const createJob = (
+  title: string,
+  role_family = "",
+  role_id?: string,
+  client_name = "",
+  role_value?: number | null,
+) => post<JobSummary>("/jobs", { title, role_family, role_id, client_name, role_value: role_value ?? null });
 
 export const getJob = (roleId: string) => get<JobDetail>(`/jobs/${roleId}`);
 
@@ -208,6 +218,24 @@ export const removeRecruiter = (roleId: string, email: string) =>
 
 export const setJobClient = (roleId: string, clientName: string | null) =>
   patch<JobSummary>(`/jobs/${roleId}/client`, { client_name: clientName });
+
+export const setJobValue = (roleId: string, roleValue: number | null) =>
+  patch<JobSummary>(`/jobs/${roleId}/value`, { role_value: roleValue });
+
+// Revenue intelligence (Batch: 8.33% model) — cumulative Expected/
+// Pipeline/Realized across the whole roster. Realized is never a
+// re-derivation of role_value — it's the sum of actual placement_fee
+// values already tracked per candidate.
+export type RevenueOverview = {
+  open_roles: number;
+  open_roles_priced: number;
+  expected_revenue: number;
+  pipeline_revenue: number;
+  realized_revenue: number;
+  margin_percentage: number;
+};
+
+export const getRevenueOverview = () => get<RevenueOverview>("/revenue/overview");
 
 // Client-facing share link (Batch B) — a rotatable token behind
 // /public/roles/{token}, the one API surface with no auth requirement.

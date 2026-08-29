@@ -45,6 +45,7 @@ import {
   setJobClient,
   setJobLifecycle,
   setJobOwner,
+  setJobValue,
   setPlacement,
   setRecruiterDecision,
   setWebhookConfig,
@@ -199,6 +200,8 @@ function JobMetaRow({ job, refresh }: { job: JobDetail; refresh: () => void }) {
   const [ownerDraft, setOwnerDraft] = useState(job.owner_email ?? "");
   const [editingClient, setEditingClient] = useState(false);
   const [clientDraft, setClientDraft] = useState(job.client_name ?? "");
+  const [editingValue, setEditingValue] = useState(false);
+  const [valueDraft, setValueDraft] = useState(job.role_value != null ? String(job.role_value) : "");
   const [linkCopied, setLinkCopied] = useState(false);
 
   async function changeLifecycle(status: JobLifecycleStatus) {
@@ -230,6 +233,20 @@ function JobMetaRow({ job, refresh }: { job: JobDetail; refresh: () => void }) {
       await setJobClient(job.role_id, clientDraft.trim() || null);
       refresh();
       setEditingClient(false);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveValue() {
+    const trimmed = valueDraft.trim();
+    const parsed = trimmed ? Number(trimmed) : null;
+    if (trimmed && (Number.isNaN(parsed) || (parsed as number) < 0)) return;
+    setBusy(true);
+    try {
+      await setJobValue(job.role_id, parsed);
+      refresh();
+      setEditingValue(false);
     } finally {
       setBusy(false);
     }
@@ -319,6 +336,30 @@ function JobMetaRow({ job, refresh }: { job: JobDetail; refresh: () => void }) {
           className="hover:underline"
         >
           Client: {job.client_name ?? "none"}
+        </button>
+      )}
+
+      {editingValue ? (
+        <span className="flex items-center gap-1">
+          <input
+            value={valueDraft}
+            onChange={(e) => setValueDraft(e.target.value)}
+            placeholder="role value / CTC"
+            inputMode="decimal"
+            className="w-28 rounded border border-zinc-300 px-1.5 py-0.5 text-xs outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-zinc-950"
+          />
+          <button onClick={saveValue} disabled={busy} className="text-indigo-700 hover:underline dark:text-indigo-400">Save</button>
+          <button onClick={() => setEditingValue(false)} className="text-zinc-400 hover:underline">Cancel</button>
+        </span>
+      ) : (
+        <button
+          onClick={() => { setValueDraft(job.role_value != null ? String(job.role_value) : ""); setEditingValue(true); }}
+          className="hover:underline"
+          title="Annual CTC / fee basis this role is priced against — 8.33% of this is the Expected Revenue"
+        >
+          {job.role_value != null
+            ? `Role value: ${job.role_value.toLocaleString()} → Expected revenue: ${(job.expected_revenue ?? 0).toLocaleString()}`
+            : "Set role value"}
         </button>
       )}
 

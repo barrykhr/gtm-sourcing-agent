@@ -13,7 +13,7 @@ stored.
 
 from datetime import UTC, datetime
 
-from sqlalchemy import JSON, DateTime, ForeignKey, String, UniqueConstraint
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -50,6 +50,10 @@ class Job(Base):
     # reassignable; drives the dashboard's "My jobs" filter now that
     # Phase 8 lets more than one recruiter share this workspace.
     owner_email: Mapped[str | None] = mapped_column(String, default=None)
+    # Revenue basis (see revenue.py) — the annual CTC/fee value this role
+    # is priced against. Manually entered by the recruiter, never
+    # AI-inferred: revenue figures are only ever as real as this number.
+    role_value: Mapped[float | None] = mapped_column(Float, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
 

@@ -31,7 +31,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from . import db
+from . import db, revenue
 from .models_orm import ActivityLog, CandidateEvaluation, CanonicalCandidate, Job, JobRecruiter, JobSection, Task, User
 
 logger = logging.getLogger(__name__)
@@ -231,12 +231,14 @@ def _job_dict(job: Job) -> dict[str, Any]:
         "role_id": job.role_id, "title": job.title, "role_family": job.role_family,
         "client_name": job.client_name, "share_token": job.share_token,
         "lifecycle_status": job.lifecycle_status, "owner_email": job.owner_email,
+        "role_value": job.role_value, "expected_revenue": revenue.expected_revenue(job.role_value),
         "created_at": job.created_at, "updated_at": job.updated_at,
     }
 
 
 def create_job(
     role_id: str, *, title: str = "", role_family: str = "", owner_email: str = "", client_name: str = "",
+    role_value: float | None = None,
 ) -> dict[str, Any]:
     """First-class job creation with display metadata. Not part of
     storage.py's contract — the file backend has no "job shell" concept,
@@ -253,6 +255,7 @@ def create_job(
             job = Job(
                 role_id=role_id, title=title or role_id, role_family=role_family,
                 owner_email=owner_email or None, client_name=client_name or None,
+                role_value=role_value,
             )
             session.add(job)
             session.flush()
@@ -385,6 +388,56 @@ def set_job_client(role_id: str, client_name: str | None) -> dict[str, Any]:
         job.client_name = client_name or None
         session.commit()
         return _job_dict(job)
+
+
+def set_job_value(role_id: str, role_value: float | None) -> dict[str, Any]:
+    """The revenue basis (see revenue.py) — recruiter-entered, never
+    AI-inferred. `None` clears it (e.g. a role with no agreed fee yet),
+    which is meaningfully different from a role genuinely worth 0."""
+    if role_value is not None and role_value < 0:
+        raise ValueError("role value can't be negative")
+    with db.get_session() as session:
+        job = session.get(Job, role_id)
+        if job is None:
+            raise ValueError(f"job '{role_id}' not found")
+        job.role_value = role_value
+        session.commit()
+        return _job_dict(job)
+
+
+def revenue_overview() -> dict[str, Any]:
+    """Cumulative revenue across the whole roster (Revenue Intelligence
+    batch). Expected = every OPEN role's role_value * margin, for roles
+    that have a role_value set at all — unpriced roles contribute
+    nothing rather than being guessed at. Pipeline = the subset of that
+    figure for roles that actually have candidates captured (real
+    sourcing activity, not just an open req). Realized is never
+    recomputed here — it's analytics_overview()'s existing sum of actual
+    placement_fee values, a number recruiters already enter by hand at
+    the moment of a real placement."""
+    jobs = list_jobs()
+    open_roles = [j for j in jobs if j["lifecycle_status"] == "OPEN"]
+    total_expected = 0.0
+    total_pipeline = 0.0
+    priced_open_roles = 0
+    for j in open_roles:
+        rev = revenue.expected_revenue(j.get("role_value"))
+        if rev is None:
+            continue
+        priced_open_roles += 1
+        total_expected += rev
+        state = load_role(j["role_id"])
+        if state.get("candidates"):
+            total_pipeline += rev
+    realized = analytics_overview()["total_placement_fees"]
+    return {
+        "open_roles": len(open_roles),
+        "open_roles_priced": priced_open_roles,
+        "expected_revenue": round(total_expected, 2),
+        "pipeline_revenue": round(total_pipeline, 2),
+        "realized_revenue": realized,
+        "margin_percentage": revenue.REVENUE_MARGIN_PERCENTAGE,
+    }
 
 
 def generate_share_link(role_id: str) -> dict[str, Any]:

@@ -900,6 +900,71 @@ def test_set_job_client_can_clear(isolated_db):
     assert resp.json()["client_name"] is None
 
 
+# ── revenue intelligence (8.33% model) ──────────────────────────────────
+
+
+def test_create_job_with_role_value_computes_expected_revenue(isolated_db):
+    resp = client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role", "role_value": 4000000})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["role_value"] == 4000000
+    # 40,00,000 * 8.33% = 3,33,200 — the exact worked example from the brief
+    assert resp.json()["expected_revenue"] == 333200.0
+
+
+def test_job_with_no_role_value_has_no_expected_revenue(isolated_db):
+    resp = client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    assert resp.json()["role_value"] is None
+    assert resp.json()["expected_revenue"] is None
+
+
+def test_set_job_value_reassigns_and_recomputes(isolated_db):
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    resp = client.patch("/jobs/ae-role/value", json={"role_value": 2000000})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["role_value"] == 2000000
+    assert resp.json()["expected_revenue"] == 166600.0
+
+
+def test_set_job_value_rejects_negative(isolated_db):
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    resp = client.patch("/jobs/ae-role/value", json={"role_value": -100})
+    assert resp.status_code == 400
+
+
+def test_revenue_overview_aggregates_expected_and_realized(isolated_db, fake_generate):
+    from gtm_sourcing_agent import db_storage
+    from gtm_sourcing_agent.models import Candidate, CandidatePrioritization
+
+    client.post("/jobs", json={"title": "Priced open role", "role_id": "priced", "role_value": 1000000})
+    client.post("/jobs", json={"title": "Unpriced open role", "role_id": "unpriced"})
+    client.post("/jobs", json={"title": "Filled role", "role_id": "filled", "role_value": 5000000})
+    client.patch("/jobs/filled/lifecycle", json={"lifecycle_status": "FILLED"})
+
+    overview = client.get("/revenue/overview").json()
+    assert overview["open_roles"] == 2  # "filled" no longer counts as open
+    assert overview["open_roles_priced"] == 1  # only "priced" is open AND has a role_value
+    assert overview["expected_revenue"] == 83300.0  # 10,00,000 * 8.33%
+    assert overview["pipeline_revenue"] == 0.0  # no candidates sourced anywhere yet
+    assert overview["margin_percentage"] == 8.33
+
+    # Add a candidate to the priced role — now it counts as "in pipeline"
+    db_storage.merge_section("priced", "icp", {"must_have": ["SaaS"]})
+    fake_generate.queue.append(Candidate(candidate_id="cand-1", name="Jane Doe"))
+    add_resp = client.post("/jobs/priced/candidates", json={"source_text": "resume", "role_family": "sales"})
+    candidate_id = _wait_for_task("priced", add_resp.json()["task_id"])["result"]["candidate_id"]
+    overview = client.get("/revenue/overview").json()
+    assert overview["pipeline_revenue"] == 83300.0
+
+    # A real placement fee on the (now-filled, so no longer "open") role
+    # shows up as realized revenue, independent of the 8.33% estimate.
+    fake_generate.queue.append(CandidatePrioritization(candidate_id=candidate_id, tier="A"))
+    p_resp = client.post(f"/jobs/priced/candidates/{candidate_id}/prioritize")
+    _wait_for_task("priced", p_resp.json()["task_id"])
+    client.post(f"/jobs/priced/candidates/{candidate_id}/placement", json={"placed": True, "fee": 400000.0})
+    overview = client.get("/revenue/overview").json()
+    assert overview["realized_revenue"] == 400000.0
+
+
 # ── client-facing share links (Batch B) ─────────────────────────────────
 
 

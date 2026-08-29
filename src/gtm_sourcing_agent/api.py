@@ -238,6 +238,7 @@ class JobCreateRequest(BaseModel):
     title: str
     role_family: str = ""
     client_name: str = ""
+    role_value: float | None = None
     role_id: str | None = None  # override the auto-generated slug if provided
 
 
@@ -305,6 +306,10 @@ class JobClientRequest(BaseModel):
     client_name: str | None = None
 
 
+class JobValueRequest(BaseModel):
+    role_value: float | None = None
+
+
 class CandidateNoteRequest(BaseModel):
     note: str = ""
 
@@ -343,7 +348,7 @@ def create_job(body: JobCreateRequest, request: Request) -> dict[str, Any]:
     # later via PATCH /jobs/{role_id}/owner.
     job = db_storage.create_job(
         role_id, title=body.title, role_family=body.role_family, client_name=body.client_name,
-        owner_email=request.state.user["email"],
+        role_value=body.role_value, owner_email=request.state.user["email"],
     )
     _log(request, role_id, "created job", detail=body.title)
     return {**job, **_job_summary(role_id)}
@@ -411,6 +416,18 @@ def set_job_client(role_id: str, body: JobClientRequest, request: Request) -> di
     job = _run_stage(db_storage.set_job_client, role_id, body.client_name)
     _log(request, role_id, "changed client", detail=body.client_name or "(unassigned)")
     return {**job, **_job_summary(role_id)}
+
+
+@app.patch("/jobs/{role_id}/value")
+def set_job_value(role_id: str, body: JobValueRequest, request: Request) -> dict[str, Any]:
+    job = _run_stage(db_storage.set_job_value, role_id, body.role_value)
+    _log(request, role_id, "changed role value", detail=str(body.role_value) if body.role_value is not None else "(unset)")
+    return {**job, **_job_summary(role_id)}
+
+
+@app.get("/revenue/overview")
+def revenue_overview() -> dict[str, Any]:
+    return db_storage.revenue_overview()
 
 
 @app.post("/jobs/{role_id}/share-link")
