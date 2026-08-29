@@ -1,8 +1,15 @@
 const VARIANTS = {
-  ok: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400",
-  pending: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400",
-  running: "bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-400",
-  critical: "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-400",
+  ok: "bg-success-soft text-success",
+  pending: "bg-[var(--border)]/60 text-muted-foreground",
+  running: "bg-warning-soft text-warning",
+  critical: "bg-critical-soft text-critical",
+} as const;
+
+const DOT_VARIANTS = {
+  ok: "bg-success",
+  pending: "bg-muted-foreground",
+  running: "bg-warning",
+  critical: "bg-critical",
 } as const;
 
 /** Tier "A" -> ok, "D" -> pending, "B"/"C" -> running, no tier yet -> pending. */
@@ -31,17 +38,7 @@ export function StatusChip({
     <span
       className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ${VARIANTS[variant]}`}
     >
-      <span
-        className={`h-1.5 w-1.5 rounded-full ${
-          variant === "ok"
-            ? "bg-emerald-500"
-            : variant === "running"
-              ? "bg-amber-500"
-              : variant === "critical"
-                ? "bg-red-500"
-                : "bg-zinc-400"
-        }`}
-      />
+      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${DOT_VARIANTS[variant]}`} />
       {label}
     </span>
   );

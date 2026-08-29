@@ -1,42 +1,99 @@
 @import "tailwindcss";
 
-/* Design tokens — enterprise SaaS pass. Indigo accent, refined zinc
-   neutrals, a small elevation scale. Referenced via Tailwind's
-   @theme inline below so `bg-surface`, `text-ink`, etc. work as
-   ordinary utility classes. */
+/* Design tokens — "calm intelligence" pass (Batch 1 of the redesign).
+   A warm, restrained neutral canvas with one accent (indigo — unchanged
+   from the prior pass, this product's established color), a real
+   radius/elevation scale so every existing `rounded-md`/`shadow-md`
+   utility across the app picks up a consistent system for free, and
+   named semantic status tokens (success/warning/critical) so color
+   communicates state rather than decorates. Referenced via Tailwind's
+   @theme inline below so `bg-surface`, `border-border`, `shadow-md`,
+   `rounded-lg`, `text-muted-foreground` etc. all work as ordinary
+   utility classes — no more `shadow-[var(--shadow-sm)]` escape hatches
+   needed in new code (existing ones still resolve fine, unchanged). */
 :root {
-  --background: #f8f9fb;
+  --background: #f7f6f2;
   --surface: #ffffff;
   --surface-raised: #ffffff;
-  --foreground: #18181b;
-  --border: #e4e4e7;
+  --foreground: #1c1a17;
+  --muted-foreground: #6b6a63;
+  --border: #e6e4dd;
   --accent: #4f46e5;
   --accent-hover: #4338ca;
+  --accent-soft: #eef0fd;
   --accent-contrast: #ffffff;
-  --shadow-sm: 0 1px 2px 0 rgb(24 24 27 / 0.04), 0 1px 1px 0 rgb(24 24 27 / 0.03);
-  --shadow-md: 0 4px 12px -2px rgb(24 24 27 / 0.08), 0 2px 4px -2px rgb(24 24 27 / 0.04);
-  --shadow-lg: 0 12px 32px -8px rgb(24 24 27 / 0.16), 0 4px 8px -4px rgb(24 24 27 / 0.06);
+
+  --success: #047857;
+  --success-soft: #ecfdf5;
+  --warning: #b45309;
+  --warning-soft: #fffbeb;
+  --critical: #b91c1c;
+  --critical-soft: #fef2f2;
+
+  --shadow-xs: 0 1px 2px 0 rgb(28 26 23 / 0.03);
+  --shadow-sm: 0 1px 2px 0 rgb(28 26 23 / 0.04), 0 1px 1px 0 rgb(28 26 23 / 0.03);
+  --shadow-md: 0 4px 12px -2px rgb(28 26 23 / 0.08), 0 2px 4px -2px rgb(28 26 23 / 0.04);
+  --shadow-lg: 0 12px 32px -8px rgb(28 26 23 / 0.16), 0 4px 8px -4px rgb(28 26 23 / 0.06);
+
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 20px;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
   --color-foreground: var(--foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
   --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-critical: var(--critical);
+  --color-critical-soft: var(--critical-soft);
+
+  --shadow-xs: var(--shadow-xs);
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+  --radius-2xl: var(--radius-2xl);
+
   --font-sans: var(--font-inter);
   --font-mono: var(--font-geist-mono);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0b0b0d;
-    --surface: #16161a;
-    --surface-raised: #1c1c21;
-    --foreground: #f4f4f5;
-    --border: #2a2a30;
+    --background: #100f0d;
+    --surface: #181714;
+    --surface-raised: #1e1d19;
+    --foreground: #f3f2ee;
+    --muted-foreground: #9d9a90;
+    --border: #2c2a25;
     --accent: #818cf8;
     --accent-hover: #a5b4fc;
-    --accent-contrast: #0b0b0d;
+    --accent-soft: #24244a;
+    --accent-contrast: #100f0d;
+
+    --success: #34d399;
+    --success-soft: #0b2e22;
+    --warning: #f2b13d;
+    --warning-soft: #3a2a0c;
+    --critical: #f38b83;
+    --critical-soft: #3a1512;
+
+    --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.35);
     --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.4);
     --shadow-md: 0 4px 12px -2px rgb(0 0 0 / 0.5);
     --shadow-lg: 0 12px 32px -8px rgb(0 0 0 / 0.6);
@@ -52,6 +109,10 @@ body {
   color: var(--foreground);
   font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+h1, h2, h3 {
+  text-wrap: balance;
 }
 
 /* Consistent, visible keyboard focus everywhere. Buttons/links get an
@@ -87,5 +148,17 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 @media (prefers-reduced-motion: no-preference) {
   button, a, input, select, textarea {
     transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease, box-shadow 120ms ease, opacity 120ms ease;
+  }
+}
+
+/* AI-activity pulse — used sparingly for an in-progress agent step
+   (HiringIntelligence-style checklists). Respects reduced-motion. */
+@keyframes ai-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ai-pulse {
+    animation: ai-pulse 1.6s ease-in-out infinite;
   }
 }
