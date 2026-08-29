@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "GTM Sourcing Agent",
+  title: "Talyn",
   description: "AI-assisted GTM recruiting sourcing workflow — the recruiter stays the decision-maker.",
 };
 

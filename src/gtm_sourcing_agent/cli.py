@@ -51,7 +51,7 @@ from .stages import (
     talent_map as talent_map_stage,
 )
 
-app = typer.Typer(help="GTM Sourcing Agent — recruiter stays the decision-maker.")
+app = typer.Typer(help="Talyn — recruiter stays the decision-maker.")
 candidate_app = typer.Typer(help="Per-candidate commands.")
 funnel_app = typer.Typer(help="Funnel tracking and forecasting.")
 app.add_typer(candidate_app, name="candidate")
@@ -79,7 +79,7 @@ def main(
         False, "--verbose", "-v", help="Show llm_client.generate() stage/token logs."
     ),
 ):
-    """GTM Sourcing Agent — recruiter stays the decision-maker."""
+    """Talyn — recruiter stays the decision-maker."""
     logging.basicConfig(
         level=logging.INFO if verbose else logging.WARNING,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",

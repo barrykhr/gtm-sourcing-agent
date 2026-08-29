@@ -23,7 +23,7 @@ export function Sidebar() {
     <aside className="flex w-60 shrink-0 flex-col border-r border-[var(--border)] bg-surface">
       <div className="px-4 pb-3 pt-5">
         <Link href="/" className="text-[15px] font-semibold tracking-tight">
-          GTM Sourcing Agent
+          Talyn
         </Link>
       </div>
 

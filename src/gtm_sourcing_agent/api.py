@@ -35,7 +35,7 @@ from .stages import screening as screening_stage
 from .stages import search_strategy as search_strategy_stage
 from .stages import talent_map as talent_map_stage
 
-app = FastAPI(title="GTM Sourcing Agent API", version="0.1.0")
+app = FastAPI(title="Talyn API", version="0.1.0")
 logger = logging.getLogger(__name__)
 
 # ── auth (Phase 7) ──────────────────────────────────────────────────────

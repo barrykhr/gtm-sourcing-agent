@@ -1,6 +1,6 @@
-# GTM Sourcing Agent — frontend
+# Talyn — frontend
 
-The job dashboard and job workspace UI for the [GTM Sourcing Agent](../README.md)
+The job dashboard and job workspace UI for the [Talyn](../README.md)
 product layer (Phase 1 — see [`../docs/product-plan.md`](../docs/product-plan.md)).
 A React/Next.js SPA calling the FastAPI service (`../src/gtm_sourcing_agent/api.py`)
 directly from the browser — no server-side data fetching, no proxying.

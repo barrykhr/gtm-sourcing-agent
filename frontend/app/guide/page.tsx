@@ -82,7 +82,7 @@ export default function GuidePage() {
         <div className="mb-8">
           <h1 className="text-2xl font-semibold tracking-tight">Guide</h1>
           <p className="mt-1 max-w-2xl text-sm text-zinc-500">
-            What every screen in GTM Sourcing Agent does and how to use it — a walkthrough of the product as it
+            What every screen in Talyn does and how to use it — a walkthrough of the product as it
             exists today, not a marketing pitch for what it might become. Screenshots below are from a real
             session, captured in this app.
           </p>

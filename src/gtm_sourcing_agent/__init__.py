@@ -1,4 +1,4 @@
-"""GTM Sourcing Agent: JD -> ICP -> talent map -> search strategy ->
+"""Talyn: JD -> ICP -> talent map -> search strategy ->
 candidate evidence -> prioritization -> screening -> outreach -> funnel.
 
 See ../../ARCHITECTURE.md for design invariants (evidence discipline,

@@ -45,9 +45,9 @@ export default function LoginPage() {
     <div className="flex w-full max-w-sm flex-col gap-6">
       <div className="flex flex-col items-center gap-1 text-center">
         <div className="mb-1 flex h-9 w-9 items-center justify-center rounded-lg bg-accent text-sm font-bold text-white">
-          G
+          T
         </div>
-        <h1 className="text-lg font-semibold tracking-tight">GTM Sourcing Agent</h1>
+        <h1 className="text-lg font-semibold tracking-tight">Talyn</h1>
         <p className="text-sm text-zinc-500">Recruiter stays the decision-maker.</p>
       </div>
 
