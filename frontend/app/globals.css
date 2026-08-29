@@ -71,6 +71,7 @@
 
   --font-sans: var(--font-inter);
   --font-mono: var(--font-geist-mono);
+  --font-serif: var(--font-fraunces);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -106,6 +107,12 @@
 
 body {
   background: var(--background);
+  background-image: radial-gradient(
+    ellipse 900px 500px at 15% -10%,
+    color-mix(in srgb, var(--accent) 7%, transparent),
+    transparent 60%
+  );
+  background-attachment: fixed;
   color: var(--foreground);
   font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
@@ -113,6 +120,24 @@ body {
 
 h1, h2, h3 {
   text-wrap: balance;
+}
+
+/* Display serif — page/section headlines only (Dashboard "Jobs", a role's
+   title, a report header). Never body text, never data-dense UI. */
+.font-display {
+  font-family: var(--font-fraunces), Georgia, serif;
+  font-optical-sizing: auto;
+}
+
+/* Small uppercase label above a headline, in a muted accent tone — the
+   "ENTERPRISE AI AGENT PLATFORM" / "MODULE 01" pattern every reference
+   site uses to frame its headline instead of dropping straight into it. */
+.eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
 }
 
 /* Consistent, visible keyboard focus everywhere. Buttons/links get an

@@ -64,8 +64,9 @@ export default function TeamUsagePage() {
   return (
     <div className="flex flex-col gap-8">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Team</h1>
-        <p className="mt-1 text-sm text-zinc-500">
+        <p className="eyebrow mb-1.5">Recruiter performance</p>
+        <h1 className="font-display text-4xl tracking-tight">Team</h1>
+        <p className="mt-1.5 text-sm text-muted-foreground">
           Every recruiter with an account, and what they&apos;ve actually done in this workspace.
         </p>
       </div>

@@ -19,9 +19,9 @@ import { useAuth } from "@/lib/auth-context";
 
 function StatCard({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="rounded-lg border border-zinc-200 bg-surface px-4 py-3 shadow-[var(--shadow-sm)] dark:border-zinc-800">
-      <p className="text-xs text-zinc-500">{label}</p>
-      <p className="mt-1 text-xl font-semibold tabular-nums">{value}</p>
+    <div className="rounded-lg border border-[var(--border)] bg-surface px-4 py-3.5 shadow-xs">
+      <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="mt-1.5 text-2xl font-semibold tabular-nums">{value}</p>
     </div>
   );
 }
@@ -116,8 +116,9 @@ export default function Dashboard() {
     <div className="flex flex-col gap-8">
       <div className="flex items-end justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Jobs</h1>
-          <p className="mt-1 text-sm text-zinc-500">Every hiring assignment is a persistent workspace.</p>
+          <p className="eyebrow mb-1.5">Recruiting workspace</p>
+          <h1 className="font-display text-4xl tracking-tight">Jobs</h1>
+          <p className="mt-1.5 text-sm text-muted-foreground">Every hiring assignment is a persistent workspace.</p>
         </div>
       </div>
 

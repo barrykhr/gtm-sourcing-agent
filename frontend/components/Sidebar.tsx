@@ -20,7 +20,7 @@ export function Sidebar() {
   const pathname = usePathname();
   return (
     <aside className="flex w-52 shrink-0 flex-col border-r border-[var(--border)] px-3 py-5">
-      <Link href="/" className="mb-6 px-2 text-[15px] font-semibold tracking-tight">
+      <Link href="/" className="font-display mb-6 px-2 text-lg italic tracking-tight">
         Talyn
       </Link>
 

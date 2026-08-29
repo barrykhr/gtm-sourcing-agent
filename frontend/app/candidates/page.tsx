@@ -28,8 +28,9 @@ export default function CandidatesRoster() {
   return (
     <div className="flex flex-col gap-8">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Candidates</h1>
-        <p className="mt-1 text-sm text-zinc-500">
+        <p className="eyebrow mb-1.5">Talent pool</p>
+        <h1 className="font-display text-4xl tracking-tight">Candidates</h1>
+        <p className="mt-1.5 text-sm text-muted-foreground">
           Every person evaluated, across every job — one profile, one fit history.
         </p>
       </div>

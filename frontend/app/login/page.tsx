@@ -101,15 +101,15 @@ export default function LoginPage() {
           onLoad={() => setGoogleScriptLoaded(true)}
         />
       )}
-      <div className="flex flex-col items-center gap-1 text-center">
-        <div className="mb-1 flex h-9 w-9 items-center justify-center rounded-lg bg-accent text-sm font-bold text-white">
+      <div className="flex flex-col items-center gap-1.5 text-center">
+        <div className="mb-1 flex h-10 w-10 items-center justify-center rounded-full bg-accent text-base font-semibold text-white">
           T
         </div>
-        <h1 className="text-lg font-semibold tracking-tight">Talyn</h1>
-        <p className="text-sm text-zinc-500">Recruiter stays the decision-maker.</p>
+        <h1 className="font-display text-2xl italic tracking-tight">Talyn</h1>
+        <p className="text-sm text-muted-foreground">Recruiter stays the decision-maker.</p>
       </div>
 
-      <div className="rounded-xl border border-zinc-200 bg-surface p-6 shadow-[var(--shadow-md)] dark:border-zinc-800">
+      <div className="rounded-xl border border-[var(--border)] bg-surface p-6 shadow-md">
         {googleClientId && (
           <>
             <div ref={googleButtonRef} className="mb-4 flex justify-center" />

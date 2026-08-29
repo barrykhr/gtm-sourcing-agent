@@ -116,8 +116,9 @@ export default function JobWorkspace() {
     <div className="flex flex-col gap-6">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">{job.title}</h1>
-          {job.role_family && <p className="mt-1 text-sm text-zinc-500">{job.role_family}</p>}
+          <p className="eyebrow mb-1.5">Role workspace</p>
+          <h1 className="font-display text-3xl tracking-tight">{job.title}</h1>
+          {job.role_family && <p className="mt-1.5 text-sm text-muted-foreground">{job.role_family}</p>}
           <JobMetaRow job={job} refresh={refresh} />
         </div>
         <div className="flex shrink-0 items-center gap-2">
