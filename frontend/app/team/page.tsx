@@ -1,10 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import {
   ApiError,
   ConversionCounts,
   RecruiterRevenue,
+  RecruiterUsage,
+  RecruiterVelocity,
   TeamUsage,
   VelocityReport,
   getRevenueByRecruiter,
@@ -16,6 +19,110 @@ import { ProgressBar } from "@/components/ui/ProgressBar";
 function rate(numerator: number, denominator: number): string {
   if (denominator === 0) return "—";
   return `${Math.round((numerator / denominator) * 100)}%`;
+}
+
+// Short label for a chart x-axis tick — the part of the email before the
+// @, so a wide team doesn't force the axis to wrap or overlap.
+function shortLabel(email: string): string {
+  return email.split("@")[0];
+}
+
+const CHART_TOOLTIP_STYLE = {
+  contentStyle: {
+    backgroundColor: "var(--surface-raised)",
+    border: "1px solid var(--border)",
+    borderRadius: 8,
+    fontSize: 12,
+  },
+  labelStyle: { color: "var(--foreground)", fontWeight: 600 },
+  itemStyle: { color: "var(--foreground)" },
+};
+
+function ChartCard({ title, subtitle, children }: { title: string; subtitle: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-lg border border-zinc-200 bg-surface p-4 shadow-[var(--shadow-sm)] dark:border-zinc-800">
+      <h3 className="text-sm font-semibold text-zinc-500">{title}</h3>
+      <p className="mt-0.5 mb-3 text-xs text-zinc-400">{subtitle}</p>
+      <div className="h-64 w-full">{children}</div>
+    </div>
+  );
+}
+
+function ActivityByRecruiterChart({ recruiters }: { recruiters: RecruiterUsage[] }) {
+  const data = [...recruiters]
+    .sort((a, b) => b.total_actions - a.total_actions)
+    .map((r) => ({ recruiter: shortLabel(r.email), "Total actions": r.total_actions, Placements: r.placements }));
+  return (
+    <ChartCard title="Activity by recruiter" subtitle="Lifetime actions logged vs. placements made.">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={data} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+          <XAxis dataKey="recruiter" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} />
+          <YAxis tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} allowDecimals={false} />
+          <Tooltip {...CHART_TOOLTIP_STYLE} />
+          <Legend wrapperStyle={{ fontSize: 12 }} />
+          <Bar dataKey="Total actions" fill="var(--accent-soft)" stroke="var(--accent)" radius={[4, 4, 0, 0]} />
+          <Bar dataKey="Placements" fill="var(--success)" radius={[4, 4, 0, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
+    </ChartCard>
+  );
+}
+
+// Large revenue figures (6-7 digits) need a compact axis label — "333k"
+// instead of "333200" — or they get clipped against the chart's edge.
+function compactNumber(value: number): string {
+  if (Math.abs(value) >= 1_000_000) return `${(value / 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 1 })}M`;
+  if (Math.abs(value) >= 1_000) return `${(value / 1_000).toLocaleString(undefined, { maximumFractionDigits: 1 })}k`;
+  return `${value}`;
+}
+
+function RevenueByRecruiterChart({ revenue }: { revenue: RecruiterRevenue[] }) {
+  const data = [...revenue]
+    .sort((a, b) => b.total_revenue - a.total_revenue)
+    .map((r) => ({ recruiter: shortLabel(r.email), Expected: r.expected_revenue, Realized: r.realized_revenue }));
+  return (
+    <ChartCard title="Revenue by recruiter" subtitle="Expected (priced, open) stacked with realized (actual placement fees).">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+          <XAxis dataKey="recruiter" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} />
+          <YAxis tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} tickFormatter={compactNumber} width={40} />
+          <Tooltip {...CHART_TOOLTIP_STYLE} />
+          <Legend wrapperStyle={{ fontSize: 12 }} />
+          <Bar dataKey="Realized" stackId="revenue" fill="var(--success)" radius={[0, 0, 0, 0]} />
+          <Bar dataKey="Expected" stackId="revenue" fill="var(--accent-soft)" stroke="var(--accent)" radius={[4, 4, 0, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
+    </ChartCard>
+  );
+}
+
+function ConversionByRecruiterChart({ recruiters }: { recruiters: RecruiterVelocity[] }) {
+  const data = recruiters.map((r) => ({
+    recruiter: shortLabel(r.email),
+    Sourced: r.conversion.sourced,
+    "A-tier": r.conversion.tiered_a,
+    Pursued: r.conversion.pursued,
+    Placed: r.conversion.placed,
+  }));
+  return (
+    <ChartCard title="Conversion funnel by recruiter" subtitle="Where candidates drop off, per recruiter.">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={data} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+          <XAxis dataKey="recruiter" tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} />
+          <YAxis tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} allowDecimals={false} />
+          <Tooltip {...CHART_TOOLTIP_STYLE} />
+          <Legend wrapperStyle={{ fontSize: 12 }} />
+          <Bar dataKey="Sourced" fill="var(--accent-soft)" stroke="var(--accent)" radius={[3, 3, 0, 0]} />
+          <Bar dataKey="A-tier" fill="var(--accent)" radius={[3, 3, 0, 0]} />
+          <Bar dataKey="Pursued" fill="var(--warning)" radius={[3, 3, 0, 0]} />
+          <Bar dataKey="Placed" fill="var(--success)" radius={[3, 3, 0, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
+    </ChartCard>
+  );
 }
 
 function ConversionCell({ conversion }: { conversion: ConversionCounts }) {
@@ -119,6 +226,26 @@ export default function TeamUsagePage() {
             <p className="text-sm text-zinc-500">No accounts yet.</p>
           ) : (
             <>
+              {(usage.recruiters.some((r) => r.total_actions > 0) ||
+                (revenueByRecruiter && revenueByRecruiter.length > 0) ||
+                (velocity && velocity.by_recruiter.length > 0)) && (
+                <div>
+                  <h2 className="text-sm font-semibold text-zinc-500">Performance charts</h2>
+                  <p className="mt-0.5 mb-2 text-xs text-zinc-400">
+                    The same numbers as the tables below, visualized for a quick comparison across the team.
+                  </p>
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    <ActivityByRecruiterChart recruiters={usage.recruiters} />
+                    {revenueByRecruiter && revenueByRecruiter.length > 0 && (
+                      <RevenueByRecruiterChart revenue={revenueByRecruiter} />
+                    )}
+                    {velocity && velocity.by_recruiter.length > 0 && (
+                      <ConversionByRecruiterChart recruiters={velocity.by_recruiter} />
+                    )}
+                  </div>
+                </div>
+              )}
+
               <div>
                 <h2 className="text-sm font-semibold text-zinc-500">Current load</h2>
                 <p className="mt-0.5 mb-2 text-xs text-zinc-400">
