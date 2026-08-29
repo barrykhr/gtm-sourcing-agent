@@ -440,6 +440,69 @@ def revenue_overview() -> dict[str, Any]:
     }
 
 
+def recruiter_revenue() -> list[dict[str, Any]]:
+    """Per-recruiter revenue contribution — the second half of Revenue
+    Intelligence, alongside revenue_overview()'s firm-wide totals.
+    *Every* recruiter attributed to a role (primary or contributor, see
+    JobRecruiter) gets full credit for that role's expected and realized
+    revenue — this is not a split. A role with a primary and a
+    contributor counts fully toward both of their totals, so summing
+    every recruiter's `expected_revenue` will not equal
+    revenue_overview()'s firm-wide `expected_revenue` once contributors
+    are in use — each recruiter's own number, and their `share_of_firm`
+    against the *true* firm total, are the meaningful figures here, not
+    a partition that has to add up to 100%. Expected revenue only
+    counts a role while it's OPEN, matching revenue_overview()."""
+    jobs = {j["role_id"]: j for j in list_jobs()}
+    with db.get_session() as session:
+        recruiter_rows = session.scalars(select(JobRecruiter)).all()
+        evaluations = session.scalars(select(CandidateEvaluation)).all()
+
+    role_recruiters: dict[str, list[str]] = {}
+    for row in recruiter_rows:
+        role_recruiters.setdefault(row.role_id, []).append(row.email)
+
+    role_realized: dict[str, float] = {}
+    for ev in evaluations:
+        p = ev.prioritization
+        if p and p.get("placed"):
+            role_realized[ev.role_id] = role_realized.get(ev.role_id, 0.0) + (p.get("placement_fee") or 0.0)
+
+    by_recruiter: dict[str, dict[str, Any]] = {}
+
+    def _bucket(email: str) -> dict[str, Any]:
+        return by_recruiter.setdefault(email, {"email": email, "roles": 0, "expected_revenue": 0.0, "realized_revenue": 0.0})
+
+    for role_id, emails in role_recruiters.items():
+        job = jobs.get(role_id)
+        if job is None:
+            continue
+        expected = revenue.expected_revenue(job.get("role_value")) if job["lifecycle_status"] == "OPEN" else None
+        realized = role_realized.get(role_id, 0.0)
+        for email in emails:
+            bucket = _bucket(email)
+            bucket["roles"] += 1
+            if expected is not None:
+                bucket["expected_revenue"] += expected
+            bucket["realized_revenue"] += realized
+
+    firm_total = revenue_overview()
+    firm_denominator = firm_total["expected_revenue"] + firm_total["realized_revenue"]
+
+    result = []
+    for bucket in by_recruiter.values():
+        total = round(bucket["expected_revenue"] + bucket["realized_revenue"], 2)
+        result.append({
+            "email": bucket["email"],
+            "roles": bucket["roles"],
+            "expected_revenue": round(bucket["expected_revenue"], 2),
+            "realized_revenue": round(bucket["realized_revenue"], 2),
+            "total_revenue": total,
+            "share_of_firm": round(total / firm_denominator * 100, 1) if firm_denominator > 0 else 0.0,
+        })
+    return sorted(result, key=lambda r: r["total_revenue"], reverse=True)
+
+
 def generate_share_link(role_id: str) -> dict[str, Any]:
     """A random, rotatable token (Batch B) — never the role_id itself, so
     a leaked link can be revoked/regenerated without renaming the role."""

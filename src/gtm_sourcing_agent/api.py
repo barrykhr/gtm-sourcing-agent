@@ -430,6 +430,11 @@ def revenue_overview() -> dict[str, Any]:
     return db_storage.revenue_overview()
 
 
+@app.get("/revenue/by-recruiter")
+def revenue_by_recruiter() -> list[dict[str, Any]]:
+    return db_storage.recruiter_revenue()
+
+
 @app.post("/jobs/{role_id}/share-link")
 def generate_share_link(role_id: str, request: Request) -> dict[str, Any]:
     job = _run_stage(db_storage.generate_share_link, role_id)

@@ -237,6 +237,23 @@ export type RevenueOverview = {
 
 export const getRevenueOverview = () => get<RevenueOverview>("/revenue/overview");
 
+// Per-recruiter revenue contribution — every recruiter attributed to a
+// role (primary or contributor) is credited in full for that role's
+// revenue, not a split; share_of_firm is against the true firm total
+// from RevenueOverview, so shares aren't guaranteed to sum to 100% once
+// contributors are in use. See db_storage.recruiter_revenue()'s
+// docstring for the full rationale.
+export type RecruiterRevenue = {
+  email: string;
+  roles: number;
+  expected_revenue: number;
+  realized_revenue: number;
+  total_revenue: number;
+  share_of_firm: number;
+};
+
+export const getRevenueByRecruiter = () => get<RecruiterRevenue[]>("/revenue/by-recruiter");
+
 // Client-facing share link (Batch B) — a rotatable token behind
 // /public/roles/{token}, the one API surface with no auth requirement.
 export const generateShareLink = (roleId: string) => post<JobSummary>(`/jobs/${roleId}/share-link`);

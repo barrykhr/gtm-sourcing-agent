@@ -965,6 +965,37 @@ def test_revenue_overview_aggregates_expected_and_realized(isolated_db, fake_gen
     assert overview["realized_revenue"] == 400000.0
 
 
+def test_recruiter_revenue_credits_primary_for_their_role(isolated_db):
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role", "role_value": 1000000})
+    resp = client.get("/revenue/by-recruiter").json()
+    assert len(resp) == 1
+    assert resp[0]["email"] == "recruiter@example.com"
+    assert resp[0]["roles"] == 1
+    assert resp[0]["expected_revenue"] == 83300.0
+    assert resp[0]["total_revenue"] == 83300.0
+    assert resp[0]["share_of_firm"] == 100.0
+
+
+def test_recruiter_revenue_credits_both_primary_and_contributor_fully(isolated_db):
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role", "role_value": 1000000})
+    client.post("/jobs/ae-role/recruiters", json={"email": "contributor@example.com"})
+    resp = client.get("/revenue/by-recruiter").json()
+    by_email = {r["email"]: r for r in resp}
+    assert by_email["recruiter@example.com"]["expected_revenue"] == 83300.0
+    assert by_email["contributor@example.com"]["expected_revenue"] == 83300.0
+    # both are credited in full — not a 50/50 split — so both share 100%
+    # of the firm total, which is real revenue.expected_revenue(1000000)
+    assert by_email["recruiter@example.com"]["share_of_firm"] == 100.0
+    assert by_email["contributor@example.com"]["share_of_firm"] == 100.0
+
+
+def test_recruiter_revenue_with_no_priced_roles_is_empty_or_zeroed(isolated_db):
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    resp = client.get("/revenue/by-recruiter").json()
+    assert resp[0]["expected_revenue"] == 0.0
+    assert resp[0]["share_of_firm"] == 0.0
+
+
 # ── client-facing share links (Batch B) ─────────────────────────────────
 
 

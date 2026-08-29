@@ -4,11 +4,14 @@ import { useEffect, useState } from "react";
 import {
   ApiError,
   ConversionCounts,
+  RecruiterRevenue,
   TeamUsage,
   VelocityReport,
+  getRevenueByRecruiter,
   getTeamUsage,
   getTeamVelocity,
 } from "@/lib/api";
+import { ProgressBar } from "@/components/ui/ProgressBar";
 
 function rate(numerator: number, denominator: number): string {
   if (denominator === 0) return "—";
@@ -50,6 +53,7 @@ function StageDaysCell({ avgDaysInStage }: { avgDaysInStage: Record<string, numb
 export default function TeamUsagePage() {
   const [usage, setUsage] = useState<TeamUsage | null>(null);
   const [velocity, setVelocity] = useState<VelocityReport | null>(null);
+  const [revenueByRecruiter, setRevenueByRecruiter] = useState<RecruiterRevenue[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -59,6 +63,9 @@ export default function TeamUsagePage() {
     getTeamVelocity()
       .then(setVelocity)
       .catch(() => {}); // non-critical — the usage tables above are the page's core content
+    getRevenueByRecruiter()
+      .then(setRevenueByRecruiter)
+      .catch(() => {}); // non-critical — revenue may not be priced on any roles yet
   }, []);
 
   return (
@@ -184,6 +191,49 @@ export default function TeamUsagePage() {
                   </table>
                 </div>
               </div>
+
+              {revenueByRecruiter && revenueByRecruiter.length > 0 && (
+                <div>
+                  <h2 className="text-sm font-semibold text-zinc-500">Revenue by recruiter</h2>
+                  <p className="mt-0.5 mb-2 text-xs text-zinc-400">
+                    Every recruiter attributed to a role — primary or contributor — gets full credit for that
+                    role&apos;s revenue, so shares can add up to more than 100% of the firm total across contributors.
+                  </p>
+                  <div className="overflow-x-auto rounded-lg border border-zinc-200 bg-surface shadow-[var(--shadow-sm)] dark:border-zinc-800">
+                    <table className="w-full min-w-[640px] border-collapse text-sm">
+                      <thead>
+                        <tr className="border-b border-zinc-200 text-left text-xs uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
+                          <th className="px-4 py-3 font-medium">Recruiter</th>
+                          <th className="px-4 py-3 font-medium">Roles</th>
+                          <th className="px-4 py-3 font-medium">Expected</th>
+                          <th className="px-4 py-3 font-medium">Realized</th>
+                          <th className="px-4 py-3 font-medium">Total</th>
+                          <th className="px-4 py-3 font-medium">Share of firm</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[...revenueByRecruiter]
+                          .sort((a, b) => b.total_revenue - a.total_revenue)
+                          .map((r) => (
+                            <tr key={r.email} className="border-b border-zinc-100 last:border-0 dark:border-zinc-900">
+                              <td className="px-4 py-3 font-medium">{r.email}</td>
+                              <td className="px-4 py-3 tabular-nums">{r.roles}</td>
+                              <td className="px-4 py-3 tabular-nums">{r.expected_revenue.toLocaleString()}</td>
+                              <td className="px-4 py-3 tabular-nums">{r.realized_revenue.toLocaleString()}</td>
+                              <td className="px-4 py-3 font-medium tabular-nums">{r.total_revenue.toLocaleString()}</td>
+                              <td className="px-4 py-3">
+                                <div className="flex flex-col gap-1">
+                                  <span className="tabular-nums text-xs">{Math.round(r.share_of_firm)}%</span>
+                                  <ProgressBar value={r.share_of_firm} max={100} />
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
 
               {velocity && (velocity.by_role.length > 0 || velocity.by_recruiter.length > 0) && (
                 <div>

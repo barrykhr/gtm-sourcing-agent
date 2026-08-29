@@ -17,6 +17,7 @@ import {
   listJobs,
 } from "@/lib/api";
 import { StatusChip } from "@/components/StatusChip";
+import { ProgressBar } from "@/components/ui/ProgressBar";
 import { useAuth } from "@/lib/auth-context";
 
 function StatCard({ label, value }: { label: string; value: string | number }) {
@@ -165,6 +166,24 @@ export default function Dashboard() {
             Expected = {revenue.open_roles_priced} priced open role{revenue.open_roles_priced === 1 ? "" : "s"} ×{" "}
             {revenue.margin_percentage}% margin. Realized is actual placement fees, not an estimate.
           </p>
+          {revenue.expected_revenue + revenue.realized_revenue > 0 && (
+            <div className="mt-1 flex flex-col gap-1">
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>Realized vs. addressable</span>
+                <span className="tabular-nums">
+                  {Math.round(
+                    (revenue.realized_revenue / (revenue.expected_revenue + revenue.realized_revenue)) * 100,
+                  )}
+                  %
+                </span>
+              </div>
+              <ProgressBar
+                value={revenue.realized_revenue}
+                max={revenue.expected_revenue + revenue.realized_revenue}
+                tone="success"
+              />
+            </div>
+          )}
         </div>
       )}
 
