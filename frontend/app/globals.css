@@ -1,5 +1,22 @@
 @import "tailwindcss";
 
+/* Scope Tailwind's `dark:` variant to an explicit [data-theme="dark"]
+   ancestor instead of its default `prefers-color-scheme: dark` media
+   query. This app has no theme toggle yet (see the "Light is the only
+   rendered mode for now" note below) and the --token system already
+   stays light-only for exactly that reason — but ~300 existing
+   `dark:bg-zinc-950` / `dark:border-zinc-700` style utility classes
+   scattered across older components never got migrated to that token
+   system, so on any visitor whose OS/browser prefers dark mode, those
+   specific elements still flipped dark while everything token-based
+   around them correctly stayed light: a light page with scattered
+   black boxes (an "Add a candidate" form's file input and text fields,
+   in one reported case) rather than a real dark mode. This one line
+   makes every dark: utility in the app dormant until a real toggle
+   sets data-theme="dark", matching the token system's own behavior,
+   instead of fixing each component one at a time as it's found. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
 /* Design tokens — "calm intelligence" pass (Batch 1 of the redesign).
    A warm, restrained neutral canvas with one accent (indigo — unchanged
    from the prior pass, this product's established color), a real
