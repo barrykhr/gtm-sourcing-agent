@@ -945,6 +945,16 @@ function EditableCriteriaList({
 
 // ── Talent Map ─────────────────────────────────────────────────────────
 
+const MATCH_DIMENSION_LABEL: Record<string, string> = {
+  product: "Product", business_segment: "Business segment", customer_base: "Customer base", industry: "Industry",
+};
+
+const TIER_COPY: Record<1 | 2 | 3, { label: string; blurb: string }> = {
+  1: { label: "Tier 1 — direct talent", blurb: "Shares most or all four dimensions with this role — the closest, least-adaptation-needed hires." },
+  2: { label: "Tier 2 — adjacent talent", blurb: "Shares some of the four — real transferable skill, some ramp-up expected." },
+  3: { label: "Tier 3 — transferable talent", blurb: "Shares few of the four but still a legitimate source — further afield, not a random scattering." },
+};
+
 function TalentMapTab({ job, busy, runAction }: StageProps) {
   const tm: Json | undefined = job.state.talent_map;
   const companies: Json[] = tm?.target_companies ?? [];
@@ -959,16 +969,56 @@ function TalentMapTab({ job, busy, runAction }: StageProps) {
         />
       )}
       {companies.length > 0 && (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {companies.map((c, i) => (
-            <Card key={i}>
-              <div className="mb-1 flex items-center justify-between">
-                <h3 className="font-medium">{c.name}</h3>
-                <StatusChip label={`Tier ${c.tier}`} variant={c.tier === 1 ? "ok" : c.tier === 2 ? "running" : "pending"} />
+        <div className="flex flex-col gap-6">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-zinc-500">
+              {companies.length} companies across 3 tiers — same four dimensions (product, business segment,
+              customer base, industry) decide every tier.
+            </p>
+            <button
+              onClick={() => runAction("talent_map", () => runTalentMap(job.role_id))}
+              disabled={busy === "talent_map"}
+              className="rounded-md border border-zinc-300 px-2.5 py-1 text-xs font-medium hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+            >
+              {busy === "talent_map" ? "Mapping…" : "Rebuild talent map"}
+            </button>
+          </div>
+          {([1, 2, 3] as const).map((tier) => {
+            const tierCompanies = companies.filter((c) => c.tier === tier);
+            if (tierCompanies.length === 0) return null;
+            return (
+              <div key={tier}>
+                <div className="mb-2 flex items-baseline gap-2">
+                  <h3 className="font-display text-lg">{TIER_COPY[tier].label}</h3>
+                  <span className="text-xs text-zinc-500">{tierCompanies.length} companies</span>
+                </div>
+                <p className="mb-2 text-xs text-zinc-500">{TIER_COPY[tier].blurb}</p>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {tierCompanies.map((c, i) => (
+                    <Card key={i}>
+                      <h4 className="mb-1 font-medium">{c.name}</h4>
+                      {c.match_dimensions && c.match_dimensions.length > 0 && (
+                        <div className="mb-1.5 flex flex-wrap gap-1">
+                          {c.match_dimensions.map((d: string) => (
+                            <span
+                              key={d}
+                              className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[10px] font-medium text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950 dark:text-indigo-300"
+                            >
+                              {MATCH_DIMENSION_LABEL[d] ?? d}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      <p className="text-sm text-zinc-600 dark:text-zinc-400">{c.why_relevant}</p>
+                      {c.limitations && (
+                        <p className="mt-1 text-xs text-zinc-400">Limitation: {c.limitations}</p>
+                      )}
+                    </Card>
+                  ))}
+                </div>
               </div>
-              <p className="text-sm text-zinc-600 dark:text-zinc-400">{c.why_relevant}</p>
-            </Card>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

@@ -98,12 +98,57 @@ def _fake_icp(**_) -> IdealCandidateProfile:
 
 
 def _fake_talent_map(**_) -> TalentMap:
+    # (mock) 5 companies per tier, same four-dimension logic
+    # (product / business_segment / customer_base / industry) the real
+    # prompt now asks for — Tier 1 shares nearly all four with this
+    # role's IoT/industrial-software, enterprise-SaaS-AE persona; Tier 2
+    # shares some; Tier 3 shares few but is still a real source.
+    tier1 = [
+        ("Samsara", "Same buyer persona (industrial ops leaders), similar deal size and cycle length.",
+         ["product", "business_segment", "customer_base", "industry"]),
+        ("Uptake", "Direct industrial-software competitor, comparable ACV and sales motion.",
+         ["product", "customer_base", "industry"]),
+        ("C3.ai", "Enterprise industrial AI platform, same buyer and deal complexity.",
+         ["product", "business_segment", "customer_base", "industry"]),
+        ("Augury", "Industrial IoT/predictive-maintenance product sold to the same plant-ops buyer.",
+         ["product", "customer_base", "industry"]),
+        ("Seeq", "Industrial analytics software, near-identical enterprise motion and buyer.",
+         ["product", "business_segment", "customer_base"]),
+    ]
+    tier2 = [
+        ("PTC", "Industrial software (PLM/IoT) — same industry and customer base, broader product line.",
+         ["customer_base", "industry"]),
+        ("Salesforce", "Enterprise SaaS sales motion is highly transferable even though the product differs.",
+         ["business_segment", "customer_base"]),
+        ("Honeywell Forge", "Industrial software arm of a legacy industrial company — same industry, different segment maturity.",
+         ["customer_base", "industry"]),
+        ("Cognite", "Industrial data platform — same industry, adjacent product (data infra vs. ops software).",
+         ["customer_base", "industry"]),
+        ("Verkada", "Enterprise IoT/security hardware+software — same enterprise segment, different industry.",
+         ["product", "business_segment"]),
+    ]
+    tier3 = [
+        ("ServiceNow", "Enterprise workflow software — same segment and deal complexity, unrelated product/industry.",
+         ["business_segment"]),
+        ("Palantir", "Enterprise platform sales to complex operational buyers — comparable scale and complexity.",
+         ["business_segment", "customer_base"]),
+        ("Datadog", "Enterprise infra SaaS — transferable technical-sale motion, different buyer and industry.",
+         ["business_segment"]),
+        ("Flexport", "Enterprise logistics software selling into industrial/ops buyers — adjacent customer base.",
+         ["customer_base"]),
+        ("Toast", "Vertical SaaS enterprise motion — comparable sales complexity from a less obvious source.",
+         ["business_segment"]),
+    ]
+    companies = [
+        TargetCompany(
+            name=name, tier=tier, why_relevant=why, match_dimensions=dims,
+            roles_to_target=["Enterprise AE", "Strategic AE"], seniority_levels_to_target=["Senior IC"],
+        )
+        for tier, group in ((1, tier1), (2, tier2), (3, tier3))
+        for name, why, dims in group
+    ]
     return TalentMap(
-        target_companies=[
-            TargetCompany(name="Samsara", tier=1, why_relevant="Same buyer persona, similar deal size and cycle length.", roles_to_target=["Enterprise AE"], seniority_levels_to_target=["Senior IC"]),
-            TargetCompany(name="Uptake", tier=1, why_relevant="Direct industrial-software competitor, comparable ACV.", roles_to_target=["Enterprise AE", "Strategic AE"]),
-            TargetCompany(name="Salesforce", tier=2, why_relevant="Enterprise sales motion is transferable even though the product differs.", roles_to_target=["Enterprise AE"], limitations="Larger brand may mean less hunting experience."),
-        ],
+        target_companies=companies,
         title_intelligence=TitleIntelligence(
             exact_target_titles=["Enterprise Account Executive"],
             adjacent_titles=["Strategic Account Executive", "Named Account Executive"],

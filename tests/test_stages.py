@@ -100,10 +100,21 @@ def test_icp_requires_both_upstream_sections(isolated_workspace, fake_generate):
     assert fake_generate.calls == []
 
 
+def _target_companies(*names: str, n: int = 15) -> list[TargetCompany]:
+    """Builds `n` TargetCompany entries, spread across the 3 tiers, with
+    the given `names` first — keeps most tests above talent_map.py's
+    MIN_TARGET_COMPANIES floor without hand-writing fifteen companies
+    inline every time."""
+    all_names = list(names) + [f"Company {i}" for i in range(n - len(names))]
+    return [
+        TargetCompany(name=name, tier=(i % 3) + 1, why_relevant="test fixture")
+        for i, name in enumerate(all_names)
+    ]
+
+
 def test_talent_map_and_search_strategy_preserve_each_others_data(isolated_workspace, fake_generate):
     storage.merge_section("acme-ae-2026", "icp", {"must_have": ["SaaS"]})
-    company = TargetCompany(name="Rippling", tier=1, why_relevant="direct comp")
-    fake_generate.queue.append(TalentMap(target_companies=[company]))
+    fake_generate.queue.append(TalentMap(target_companies=_target_companies("Rippling")))
     talent_map.run("acme-ae-2026")
 
     state = storage.load_role("acme-ae-2026")["talent_map"]
@@ -118,6 +129,46 @@ def test_talent_map_and_search_strategy_preserve_each_others_data(isolated_works
     # search_strategy.run must not have clobbered the companies talent_map.run wrote
     assert state["target_companies"][0]["name"] == "Rippling"
     assert state["search_strategies"][0]["name"] == "broad"
+
+
+def test_talent_map_retries_once_when_company_list_is_thin(isolated_workspace, fake_generate):
+    storage.merge_section("acme-ae-2026", "icp", {"must_have": ["SaaS"]})
+    too_few = TalentMap(target_companies=[TargetCompany(name="Only One", tier=1, why_relevant="x")])
+    fake_generate.queue.append(too_few)
+    fake_generate.queue.append(TalentMap(target_companies=_target_companies("Retried Co")))
+
+    result = talent_map.run("acme-ae-2026")
+
+    assert len(fake_generate.calls) == 2  # the retry actually happened
+    assert result.target_companies[0].name == "Retried Co"
+
+
+def test_talent_map_keeps_thin_list_if_retry_does_not_improve(isolated_workspace, fake_generate):
+    storage.merge_section("acme-ae-2026", "icp", {"must_have": ["SaaS"]})
+    too_few = TalentMap(target_companies=[TargetCompany(name="Original", tier=1, why_relevant="x")])
+    still_too_few = TalentMap(target_companies=[TargetCompany(name="Retry", tier=1, why_relevant="x")])
+    fake_generate.queue.append(too_few)
+    fake_generate.queue.append(still_too_few)
+
+    result = talent_map.run("acme-ae-2026")
+
+    assert len(fake_generate.calls) == 2
+    # retry didn't add more companies than the original, so the original is kept
+    assert result.target_companies[0].name == "Original"
+
+
+def test_target_company_carries_match_dimensions(isolated_workspace, fake_generate):
+    storage.merge_section("acme-ae-2026", "icp", {"must_have": ["SaaS"]})
+    company = TargetCompany(
+        name="Rippling", tier=1, why_relevant="same everything",
+        match_dimensions=["product", "business_segment", "customer_base", "industry"],
+    )
+    fake_generate.queue.append(TalentMap(target_companies=_target_companies() + [company]))
+
+    result = talent_map.run("acme-ae-2026")
+
+    rippling = next(c for c in result.target_companies if c.name == "Rippling")
+    assert set(rippling.match_dimensions) == {"product", "business_segment", "customer_base", "industry"}
 
 
 def test_candidate_analysis_slugifies_missing_id_and_sets_source_url(isolated_workspace, fake_generate):
