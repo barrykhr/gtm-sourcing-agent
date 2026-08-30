@@ -155,6 +155,8 @@ export type CandidateEvaluationSummary = {
   fit_rating: FitRating | null;
   why_they_fit: string[] | null;
   recruiter_decision: string | null;
+  phone: string;
+  email: string;
 };
 
 export type CanonicalCandidate = {

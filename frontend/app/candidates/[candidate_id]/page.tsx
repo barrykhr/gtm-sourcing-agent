@@ -5,15 +5,20 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { ApiError, CanonicalCandidate, getCandidateGlobal } from "@/lib/api";
 import { StatusChip, rygVariant, tierVariant } from "@/components/StatusChip";
+import { CommunicationsCard } from "@/components/CommunicationsCard";
 
 export default function CandidateDetail() {
   const params = useParams<{ candidate_id: string }>();
   const [candidate, setCandidate] = useState<CanonicalCandidate | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
 
   useEffect(() => {
     getCandidateGlobal(params.candidate_id)
-      .then(setCandidate)
+      .then((c) => {
+        setCandidate(c);
+        if (c.evaluations.length > 0) setSelectedRoleId(c.evaluations[0].role_id);
+      })
       .catch((e) => setError(e instanceof ApiError ? e.message : "Could not reach the API."));
   }, [params.candidate_id]);
 
@@ -25,6 +30,8 @@ export default function CandidateDetail() {
     );
   }
   if (!candidate) return <p className="text-sm text-zinc-500">Loading…</p>;
+
+  const selectedEvaluation = candidate.evaluations.find((e) => e.role_id === selectedRoleId) ?? null;
 
   return (
     <div className="flex flex-col gap-6">
@@ -87,6 +94,38 @@ export default function CandidateDetail() {
           </div>
         )}
       </div>
+
+      {selectedEvaluation && (
+        <div className="flex flex-col gap-2">
+          {candidate.evaluations.length > 1 && (
+            <div className="flex items-center gap-2 text-xs text-zinc-500">
+              <label htmlFor="conversation-role" className="font-medium">Conversation for</label>
+              <select
+                id="conversation-role"
+                value={selectedRoleId ?? ""}
+                onChange={(e) => setSelectedRoleId(e.target.value)}
+                className="rounded-md border border-zinc-300 px-2 py-1 text-xs outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-zinc-950"
+              >
+                {candidate.evaluations.map((e) => (
+                  <option key={e.role_id} value={e.role_id}>{e.job_title}</option>
+                ))}
+              </select>
+              <span>
+                — contact info and logged communications are tracked per role, since the same person can be reached
+                differently across different hiring processes.
+              </span>
+            </div>
+          )}
+          <CommunicationsCard
+            key={selectedEvaluation.role_id}
+            roleId={selectedEvaluation.role_id}
+            candidateId={selectedEvaluation.candidate_evaluation_id}
+            name={candidate.name}
+            initialPhone={selectedEvaluation.phone}
+            initialEmail={selectedEvaluation.email}
+          />
+        </div>
+      )}
     </div>
   );
 }
