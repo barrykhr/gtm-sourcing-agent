@@ -13,7 +13,7 @@ import logging
 import os
 import re
 import unicodedata
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,6 +26,7 @@ from .models.funnel import ForecastAssumptions
 from .models.interview_questions import InterviewQuestionHistory
 from .stages import calibration as calibration_stage
 from .stages import candidate_analysis as candidate_analysis_stage
+from .stages import conversation_summary as conversation_summary_stage
 from .stages import funnel as funnel_stage
 from .stages import icp as icp_stage
 from .stages import intake as intake_stage
@@ -315,6 +316,19 @@ class CandidateNoteRequest(BaseModel):
     note: str = ""
 
 
+class CandidateContactRequest(BaseModel):
+    phone: str | None = None
+    email: str | None = None
+
+
+class CommunicationLogRequest(BaseModel):
+    channel: Literal["email", "whatsapp", "call", "note"]
+    direction: Literal["outbound", "inbound"] = "outbound"
+    content: str = ""
+    transcript: str | None = None
+    contact_used: str = ""
+
+
 class ForecastRequest(BaseModel):
     hires: int
     weeks: int
@@ -593,6 +607,10 @@ def _run_outreach(role_id: str, args: dict[str, Any]) -> dict[str, Any]:
     return outreach_stage.run(role_id, args["candidate_id"], storage_backend=db_storage).model_dump()
 
 
+def _run_conversation_summary(role_id: str, args: dict[str, Any]) -> dict[str, Any]:
+    return conversation_summary_stage.run(role_id, args["candidate_id"], storage_backend=db_storage).model_dump()
+
+
 for _kind, _fn in [
     ("intake", _run_intake),
     ("calibrate", _run_calibrate),
@@ -604,6 +622,7 @@ for _kind, _fn in [
     ("prioritize", _run_prioritize),
     ("screen", _run_screen),
     ("outreach", _run_outreach),
+    ("conversation_summary", _run_conversation_summary),
 ]:
     task_queue.register_runner(_kind, _fn)
 
@@ -910,6 +929,50 @@ def set_candidate_note(role_id: str, candidate_id: str, body: CandidateNoteReque
     result = _run_stage(db_storage.set_candidate_note, role_id, candidate_id, body.note)
     _log(request, role_id, "edited candidate note", candidate_id=candidate_id)
     return result
+
+
+@app.patch("/jobs/{role_id}/candidates/{candidate_id}/contact")
+def set_candidate_contact(role_id: str, candidate_id: str, body: CandidateContactRequest, request: Request) -> dict[str, Any]:
+    # Recruiter-entered/confirmed contact info for the WhatsApp/call
+    # handoff below — same deterministic, recruiter-authored category as
+    # the note route above.
+    result = _run_stage(db_storage.set_candidate_contact, role_id, candidate_id, phone=body.phone, email=body.email)
+    _log(request, role_id, "updated candidate contact info", candidate_id=candidate_id)
+    return result
+
+
+# ── conversation history (email/WhatsApp/call demo) ─────────────────────
+# This repo never sends anything itself — see outreach.py's docstring.
+# WhatsApp/call "sending" here means the wa.me/tel: device handoff (see
+# the frontend's confirm popup), which the recruiter's own device carries
+# out; logging happens the moment they confirm, not on delivery, because
+# there is no messaging/telephony backend to confirm delivery with. A
+# transcript is manually entered after a call today — wiring a real
+# transcription provider (Twilio Voice Intelligence, Exotel, etc.) would
+# populate the same field automatically, no schema change required.
+
+
+@app.get("/jobs/{role_id}/candidates/{candidate_id}/communications")
+def get_communications(role_id: str, candidate_id: str) -> dict[str, Any]:
+    if not db_storage.job_exists(role_id):
+        raise HTTPException(status_code=404, detail=f"job '{role_id}' not found")
+    entries = _run_stage(db_storage.list_communications, role_id, candidate_id)
+    summary = _run_stage(db_storage.get_conversation_summary, role_id, candidate_id)
+    return {"entries": entries, **summary}
+
+
+@app.post("/jobs/{role_id}/candidates/{candidate_id}/communications", status_code=202)
+def log_communication(
+    role_id: str, candidate_id: str, body: CommunicationLogRequest, request: Request
+) -> dict[str, Any]:
+    entry = _run_stage(
+        db_storage.log_communication, role_id, candidate_id, channel=body.channel, direction=body.direction,
+        content=body.content, transcript=body.transcript, contact_used=body.contact_used,
+        logged_by=request.state.user["email"],
+    )
+    _log(request, role_id, f"logged {body.channel} communication", candidate_id=candidate_id)
+    task = task_queue.enqueue(role_id, "conversation_summary", {"candidate_id": candidate_id})
+    return {"entry": entry, "summary_task": task}
 
 
 # ── funnel ───────────────────────────────────────────────────────────────

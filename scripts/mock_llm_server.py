@@ -22,6 +22,7 @@ from gtm_sourcing_agent import db_storage, llm_client, orchestrator  # noqa: E40
 from gtm_sourcing_agent.models import (  # noqa: E402
     Candidate,
     CandidatePrioritization,
+    ConversationSummaryResult,
     HiringManagerCalibration,
     IdealCandidateProfile,
     JobDescription,
@@ -237,6 +238,16 @@ def _fake_interview_questions(**_) -> RoleInterviewQuestions:
     )
 
 
+def _fake_conversation_summary(**_) -> ConversationSummaryResult:
+    return ConversationSummaryResult(
+        summary=(
+            "(mock) Warm initial contact — candidate responded positively to the WhatsApp outreach and "
+            "a follow-up call was logged; tone throughout has been receptive, no objections raised yet."
+        ),
+        open_items=["(mock) Confirm updated compensation expectations on the next call"],
+    )
+
+
 def _fake_outreach(**_) -> OutreachSequence:
     return OutreachSequence(
         candidate_id="",
@@ -257,6 +268,7 @@ _BY_STAGE = {
     "prioritization": _fake_prioritization,
     "screening": _fake_screening,
     "outreach": _fake_outreach,
+    "conversation_summary": _fake_conversation_summary,
 }
 
 

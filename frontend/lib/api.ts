@@ -127,6 +127,11 @@ export type Candidate = {
   recommended_next_action: string;
   source_url: string;
   note: string;
+  phone: string;
+  email: string;
+  conversation_summary: string;
+  conversation_summary_updated_at: string | null;
+  conversation_summary_entry_count: number;
   prioritization: {
     tier: "A" | "B" | "C" | "D";
     fit_score: number;
@@ -489,6 +494,53 @@ export const setPlacement = (roleId: string, candidateId: string, placed: boolea
 // else in the product reads this (Phase 10).
 export const setCandidateNote = (roleId: string, candidateId: string, note: string) =>
   patch<{ candidate_id: string; note: string }>(`/jobs/${roleId}/candidates/${candidateId}/note`, { note });
+
+// ── conversation history (email/WhatsApp/call demo) ────────────────────
+// This app never sends anything itself — WhatsApp/call "sending" means
+// the wa.me/tel: device handoff the UI opens; logging happens the moment
+// the recruiter confirms, not on delivery, since there's no messaging/
+// telephony backend to confirm delivery with. See api.py's route
+// docstring for the honest framing this mirrors.
+export type CommunicationChannel = "email" | "whatsapp" | "call" | "note";
+export type CommunicationDirection = "outbound" | "inbound";
+export type CommunicationLogEntry = {
+  id: number;
+  channel: CommunicationChannel;
+  direction: CommunicationDirection;
+  content: string;
+  transcript: string | null;
+  contact_used: string;
+  logged_by: string;
+  created_at: string;
+};
+export type ConversationHistory = {
+  entries: CommunicationLogEntry[];
+  summary: string;
+  updated_at: string | null;
+  based_on_entries: number;
+};
+
+export const setCandidateContact = (roleId: string, candidateId: string, phone?: string, email?: string) =>
+  patch<{ candidate_id: string; phone: string; email: string }>(
+    `/jobs/${roleId}/candidates/${candidateId}/contact`, { phone, email },
+  );
+
+export const getCommunications = (roleId: string, candidateId: string) =>
+  get<ConversationHistory>(`/jobs/${roleId}/candidates/${candidateId}/communications`);
+
+// The summary regeneration is async (an LLM call) — logging itself is
+// synchronous and returns immediately with the created entry; the
+// caller polls summary_task if it wants to know when the refreshed
+// summary is ready, same task-polling pattern as every other AI stage.
+export const logCommunication = async (
+  roleId: string, candidateId: string,
+  body: { channel: CommunicationChannel; direction?: CommunicationDirection; content: string; transcript?: string; contact_used?: string },
+) => {
+  const resp = await post<{ entry: CommunicationLogEntry; summary_task: Task }>(
+    `/jobs/${roleId}/candidates/${candidateId}/communications`, body,
+  );
+  return resp;
+};
 
 // ── integrations / outbound webhook (Phase 8) ──────────────────────────
 // A real HTTP POST to a URL the recruiter configures for their own job —

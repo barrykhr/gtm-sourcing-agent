@@ -156,6 +156,20 @@ class CandidateEvaluation(Base):
     data: Mapped[dict] = mapped_column(JSON)
     prioritization: Mapped[dict | None] = mapped_column(JSON, default=None)
     note: Mapped[str] = mapped_column(String, default="")
+    # Contact info for the WhatsApp/call handoff (Conversation History
+    # batch) — same category as `note` above: recruiter-entered/confirmed,
+    # deliberately kept out of `data` since it's not model-produced
+    # evidence. A resume rarely states a reliable outreach number, so
+    # this is never auto-filled from candidate_analysis.
+    phone: Mapped[str] = mapped_column(String, default="")
+    email: Mapped[str] = mapped_column(String, default="")
+    # Rolling AI-generated summary across every logged communication
+    # (stages/conversation_summary.py) — regenerated after each new log
+    # entry, never hand-edited, so it lives beside the log rather than
+    # inside `note`.
+    conversation_summary: Mapped[str] = mapped_column(String, default="")
+    conversation_summary_updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
+    conversation_summary_entry_count: Mapped[int] = mapped_column(default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
 
@@ -209,4 +223,30 @@ class ActivityLog(Base):
     action: Mapped[str] = mapped_column(String)
     detail: Mapped[str] = mapped_column(String, default="")
     candidate_id: Mapped[str | None] = mapped_column(String, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class CommunicationLogEntry(Base):
+    """One logged touchpoint with a candidate — email, WhatsApp, or a
+    phone call — in one place instead of split across three surfaces
+    (Conversation History batch). This repo has never sent anything
+    itself (see outreach.py's docstring); logging a "whatsapp"/"call"
+    entry records that the recruiter used the wa.me/tel: device handoff,
+    not that delivery or connection was confirmed — there is no
+    telephony or messaging backend to confirm that. `transcript` is
+    free text the recruiter fills in after a call; wiring a real
+    transcription provider would populate this same field automatically
+    without any schema change."""
+
+    __tablename__ = "communication_log_entries"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    role_id: Mapped[str] = mapped_column(ForeignKey("jobs.role_id"))
+    candidate_evaluation_id: Mapped[str] = mapped_column(String)
+    channel: Mapped[str] = mapped_column(String)  # "email" | "whatsapp" | "call" | "note"
+    direction: Mapped[str] = mapped_column(String, default="outbound")  # "outbound" | "inbound"
+    content: Mapped[str] = mapped_column(String, default="")
+    transcript: Mapped[str | None] = mapped_column(String, default=None)
+    contact_used: Mapped[str] = mapped_column(String, default="")  # the phone/email actually used
+    logged_by: Mapped[str] = mapped_column(String, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)

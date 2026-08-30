@@ -32,7 +32,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from . import db, revenue
-from .models_orm import ActivityLog, CandidateEvaluation, CanonicalCandidate, Job, JobRecruiter, JobSection, Task, User
+from .models_orm import (
+    ActivityLog, CandidateEvaluation, CanonicalCandidate, CommunicationLogEntry, Job, JobRecruiter, JobSection,
+    Task, User,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +66,13 @@ def load_role(role_id: str) -> dict[str, Any]:
             # so the frontend can link a per-job candidate to their global
             # roster profile (Phase 2's cross-job view).
             state["candidates"][ev.candidate_evaluation_id] = {
-                **ev.data, "canonical_candidate_id": ev.canonical_candidate_id, "note": ev.note
+                **ev.data, "canonical_candidate_id": ev.canonical_candidate_id, "note": ev.note,
+                "phone": ev.phone, "email": ev.email,
+                "conversation_summary": ev.conversation_summary,
+                "conversation_summary_updated_at": (
+                    ev.conversation_summary_updated_at.isoformat() if ev.conversation_summary_updated_at else None
+                ),
+                "conversation_summary_entry_count": ev.conversation_summary_entry_count,
             }
             if ev.prioritization is not None:
                 state["prioritizations"][ev.candidate_evaluation_id] = ev.prioritization
@@ -224,6 +233,115 @@ def set_candidate_note(role_id: str, candidate_id: str, note: str) -> dict[str, 
         row.updated_at = datetime.now(UTC)
         session.commit()
         return {"candidate_id": candidate_id, "note": row.note}
+
+
+def set_candidate_contact(role_id: str, candidate_id: str, *, phone: str | None = None, email: str | None = None) -> dict[str, Any]:
+    """Contact info for the WhatsApp/call handoff — recruiter-entered or
+    confirmed, same category as set_candidate_note above. `None` for a
+    field leaves it unchanged; pass "" explicitly to clear one."""
+    with db.get_session() as session:
+        row = session.scalars(
+            select(CandidateEvaluation).where(
+                CandidateEvaluation.role_id == role_id,
+                CandidateEvaluation.candidate_evaluation_id == candidate_id,
+            )
+        ).first()
+        if row is None:
+            raise ValueError(f"candidate '{candidate_id}' not found for role '{role_id}'")
+        if phone is not None:
+            row.phone = phone
+        if email is not None:
+            row.email = email
+        row.updated_at = datetime.now(UTC)
+        session.commit()
+        return {"candidate_id": candidate_id, "phone": row.phone, "email": row.email}
+
+
+def list_communications(role_id: str, candidate_id: str) -> list[dict[str, Any]]:
+    """Every logged touchpoint with this candidate, oldest first —
+    across email, WhatsApp, and calls in one place (Conversation History
+    batch). See CommunicationLogEntry's docstring for what "logged"
+    means here: this repo never sends or connects anything itself, so an
+    entry records that the recruiter used the wa.me/tel: handoff or sent
+    an email, not a delivery confirmation."""
+    with db.get_session() as session:
+        rows = session.scalars(
+            select(CommunicationLogEntry)
+            .where(
+                CommunicationLogEntry.role_id == role_id,
+                CommunicationLogEntry.candidate_evaluation_id == candidate_id,
+            )
+            .order_by(CommunicationLogEntry.created_at)
+        ).all()
+        return [
+            {
+                "id": r.id, "channel": r.channel, "direction": r.direction, "content": r.content,
+                "transcript": r.transcript, "contact_used": r.contact_used, "logged_by": r.logged_by,
+                "created_at": r.created_at.isoformat(),
+            }
+            for r in rows
+        ]
+
+
+def log_communication(
+    role_id: str, candidate_id: str, *, channel: str, direction: str, content: str,
+    transcript: str | None = None, contact_used: str = "", logged_by: str = "",
+) -> dict[str, Any]:
+    with db.get_session() as session:
+        if session.get(Job, role_id) is None:
+            raise ValueError(f"job '{role_id}' not found")
+        eval_row = session.scalars(
+            select(CandidateEvaluation).where(
+                CandidateEvaluation.role_id == role_id,
+                CandidateEvaluation.candidate_evaluation_id == candidate_id,
+            )
+        ).first()
+        if eval_row is None:
+            raise ValueError(f"candidate '{candidate_id}' not found for role '{role_id}'")
+        entry = CommunicationLogEntry(
+            role_id=role_id, candidate_evaluation_id=candidate_id, channel=channel, direction=direction,
+            content=content, transcript=transcript, contact_used=contact_used, logged_by=logged_by,
+        )
+        session.add(entry)
+        session.commit()
+        return {
+            "id": entry.id, "channel": entry.channel, "direction": entry.direction, "content": entry.content,
+            "transcript": entry.transcript, "contact_used": entry.contact_used, "logged_by": entry.logged_by,
+            "created_at": entry.created_at.isoformat(),
+        }
+
+
+def get_conversation_summary(role_id: str, candidate_id: str) -> dict[str, Any]:
+    with db.get_session() as session:
+        row = session.scalars(
+            select(CandidateEvaluation).where(
+                CandidateEvaluation.role_id == role_id,
+                CandidateEvaluation.candidate_evaluation_id == candidate_id,
+            )
+        ).first()
+        if row is None:
+            raise ValueError(f"candidate '{candidate_id}' not found for role '{role_id}'")
+        return {
+            "summary": row.conversation_summary,
+            "updated_at": row.conversation_summary_updated_at.isoformat() if row.conversation_summary_updated_at else None,
+            "based_on_entries": row.conversation_summary_entry_count,
+        }
+
+
+def set_conversation_summary(role_id: str, candidate_id: str, summary: str, entry_count: int) -> None:
+    with db.get_session() as session:
+        row = session.scalars(
+            select(CandidateEvaluation).where(
+                CandidateEvaluation.role_id == role_id,
+                CandidateEvaluation.candidate_evaluation_id == candidate_id,
+            )
+        ).first()
+        if row is None:
+            raise ValueError(f"candidate '{candidate_id}' not found for role '{role_id}'")
+        row.conversation_summary = summary
+        row.conversation_summary_updated_at = datetime.now(UTC)
+        row.conversation_summary_entry_count = entry_count
+        session.commit()
 
 
 def _job_dict(job: Job) -> dict[str, Any]:

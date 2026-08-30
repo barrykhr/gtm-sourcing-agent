@@ -1145,6 +1145,101 @@ def test_set_candidate_note_404_for_missing_candidate(isolated_db):
     assert resp.status_code == 400
 
 
+# ── conversation history: email/WhatsApp/call log + rolling summary ────
+
+
+def test_set_candidate_contact(isolated_db):
+    from gtm_sourcing_agent import db_storage
+
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    db_storage.merge_candidate("ae-role", "cand-1", {"name": "Jane Doe"})
+
+    resp = client.patch(
+        "/jobs/ae-role/candidates/cand-1/contact", json={"phone": "+919876543210", "email": "jane@example.com"}
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"candidate_id": "cand-1", "phone": "+919876543210", "email": "jane@example.com"}
+
+    listed = client.get("/jobs/ae-role/candidates").json()
+    assert listed[0]["phone"] == "+919876543210"
+    assert listed[0]["email"] == "jane@example.com"
+
+
+def test_log_communication_creates_entry_and_enqueues_summary(isolated_db, fake_generate):
+    from gtm_sourcing_agent import db_storage
+    from gtm_sourcing_agent.models import ConversationSummaryResult
+
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    db_storage.merge_candidate("ae-role", "cand-1", {"name": "Jane Doe"})
+    fake_generate.queue.append(ConversationSummaryResult(summary="Warm contact so far.", open_items=["Follow up Friday"]))
+
+    resp = client.post(
+        "/jobs/ae-role/candidates/cand-1/communications",
+        json={"channel": "whatsapp", "direction": "outbound", "content": "Hi Jane, following up on the AE role.", "contact_used": "+919876543210"},
+    )
+    assert resp.status_code == 202, resp.text
+    body = resp.json()
+    assert body["entry"]["channel"] == "whatsapp"
+    assert body["entry"]["content"] == "Hi Jane, following up on the AE role."
+
+    task = _wait_for_task("ae-role", body["summary_task"]["task_id"])
+    assert task["status"] == "succeeded", task
+
+    fetched = client.get("/jobs/ae-role/candidates/cand-1/communications").json()
+    assert len(fetched["entries"]) == 1
+    assert fetched["summary"] == "Warm contact so far."
+    assert fetched["based_on_entries"] == 1
+    assert fake_generate.calls[0]["stage"] == "conversation_summary"
+
+
+def test_communications_history_accumulates_across_channels(isolated_db, fake_generate):
+    from gtm_sourcing_agent import db_storage
+    from gtm_sourcing_agent.models import ConversationSummaryResult
+
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    db_storage.merge_candidate("ae-role", "cand-1", {"name": "Jane Doe"})
+
+    fake_generate.queue.append(ConversationSummaryResult(summary="First contact."))
+    r1 = client.post(
+        "/jobs/ae-role/candidates/cand-1/communications",
+        json={"channel": "email", "content": "Reaching out about the role."},
+    )
+    _wait_for_task("ae-role", r1.json()["summary_task"]["task_id"])
+
+    fake_generate.queue.append(ConversationSummaryResult(summary="Called and discussed comp expectations."))
+    r2 = client.post(
+        "/jobs/ae-role/candidates/cand-1/communications",
+        json={"channel": "call", "content": "20-min call, discussed comp.", "transcript": "Recruiter: Hi Jane... Jane: Sure, happy to chat."},
+    )
+    _wait_for_task("ae-role", r2.json()["summary_task"]["task_id"])
+
+    fetched = client.get("/jobs/ae-role/candidates/cand-1/communications").json()
+    assert [e["channel"] for e in fetched["entries"]] == ["email", "call"]
+    assert fetched["entries"][1]["transcript"].startswith("Recruiter:")
+    assert fetched["summary"] == "Called and discussed comp expectations."
+    assert fetched["based_on_entries"] == 2
+
+
+def test_log_communication_404_for_missing_candidate(isolated_db):
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    resp = client.post(
+        "/jobs/ae-role/candidates/no-such-candidate/communications", json={"channel": "email", "content": "x"}
+    )
+    assert resp.status_code == 400
+
+
+def test_communications_empty_before_any_logged(isolated_db):
+    from gtm_sourcing_agent import db_storage
+
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    db_storage.merge_candidate("ae-role", "cand-1", {"name": "Jane Doe"})
+
+    fetched = client.get("/jobs/ae-role/candidates/cand-1/communications").json()
+    assert fetched["entries"] == []
+    assert fetched["summary"] == ""
+    assert fetched["based_on_entries"] == 0
+
+
 # ── global search (Phase 10) ────────────────────────────────────────────
 
 
