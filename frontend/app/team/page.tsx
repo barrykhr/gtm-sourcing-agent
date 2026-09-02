@@ -5,11 +5,13 @@ import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAx
 import {
   ApiError,
   ConversionCounts,
+  IntegrationStatus,
   RecruiterRevenue,
   RecruiterUsage,
   RecruiterVelocity,
   TeamUsage,
   VelocityReport,
+  getIntegrationsStatus,
   getRevenueByRecruiter,
   getTeamUsage,
   getTeamVelocity,
@@ -153,6 +155,62 @@ function StageDaysCell({ avgDaysInStage }: { avgDaysInStage: Record<string, numb
           {stage.replace(/_/g, " ")}: {days}d
         </span>
       ))}
+    </div>
+  );
+}
+
+// Integration foundations (Google Workspace / Calendly / phone) — this
+// is genuinely not connected to anything: no OAuth apps or telephony
+// credentials exist in this environment. The point of this panel is to
+// show the correct connection state and architecture honestly rather
+// than fake a "Connected" state, per the product's explicit no-fake-
+// integrations principle.
+function IntegrationsPanel() {
+  const [statuses, setStatuses] = useState<IntegrationStatus[] | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    getIntegrationsStatus().then(setStatuses).catch(() => setStatuses([]));
+  }, []);
+
+  if (!statuses || statuses.length === 0) return null;
+
+  return (
+    <div>
+      <h2 className="font-display text-xl tracking-tight">Integrations</h2>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Connect external tools to bring scheduling, meetings, and calls into Talyn. None of these are connected yet.
+      </p>
+      <div className="mt-3 grid gap-3 sm:grid-cols-3">
+        {statuses.map((s) => (
+          <div key={s.provider} className="rounded-lg border border-zinc-200 bg-surface p-4 shadow-[var(--shadow-sm)] dark:border-zinc-800">
+            <div className="flex items-center justify-between">
+              <p className="font-medium">{s.label}</p>
+              <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+                Not connected
+              </span>
+            </div>
+            <p className="mt-1.5 text-xs text-zinc-500">{s.capabilities}</p>
+            <button
+              onClick={() =>
+                setNotice(
+                  `${s.label} isn't connected yet. Connecting it requires a real ${
+                    s.provider === "google_workspace" ? "Google Cloud OAuth app" : s.provider === "calendly" ? "Calendly OAuth app" : "telephony provider (e.g. Twilio) account"
+                  } — this environment doesn't have one configured.`
+                )
+              }
+              className="mt-3 rounded-md border border-zinc-300 px-2.5 py-1 text-xs font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+            >
+              Connect {s.label}
+            </button>
+          </div>
+        ))}
+      </div>
+      {notice && (
+        <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+          {notice}
+        </p>
+      )}
     </div>
   );
 }
@@ -419,6 +477,8 @@ export default function TeamUsagePage() {
               )}
             </>
           )}
+
+          <IntegrationsPanel />
 
           <p className="text-xs text-zinc-400">
             Visible to every account — this workspace has no separate admin role, so any recruiter can see this page.

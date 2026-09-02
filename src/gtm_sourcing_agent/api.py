@@ -1067,6 +1067,51 @@ def funnel_report(role_id: str) -> dict[str, Any]:
     return result.model_dump()
 
 
+# ── external integrations (Google Workspace / Calendly / telephony) ────
+# Account-level connection status, distinct from the per-job outbound
+# webhook below. None of these are actually wired up — there are no
+# OAuth apps or telephony credentials in this environment — so this is
+# deliberately just the honest status + architecture the real connect
+# flow would slot into later, never a faked "connected" state. See each
+# provider's docstring in INTEGRATION_PROVIDERS.
+
+INTEGRATION_PROVIDERS: dict[str, dict[str, str]] = {
+    "google_workspace": {
+        "label": "Google Workspace",
+        "env_var": "GOOGLE_OAUTH_CLIENT_ID",
+        "capabilities": "Gmail, Google Calendar, Google Meet — schedule interviews and create Meet links from a candidate's record.",
+    },
+    "calendly": {
+        "label": "Calendly",
+        "env_var": "CALENDLY_CLIENT_ID",
+        "capabilities": "Send a candidate a scheduling link for a screening, hiring-manager, technical, or final interview.",
+    },
+    "telephony": {
+        "label": "Phone / telephony",
+        "env_var": "TELEPHONY_PROVIDER_API_KEY",
+        "capabilities": "Place outbound calls, record them, and receive an automatic transcript — today's Call button is a device (tel:) handoff, not a connected line.",
+    },
+}
+
+
+@app.get("/integrations/status")
+def integrations_status() -> list[dict[str, Any]]:
+    # "environment_configured" means the provider's own credentials are
+    # present in this environment's env vars — it is NOT the same as
+    # "connected": no OAuth callback flow exists yet, so even a fully
+    # configured environment reports not_connected until that's built.
+    return [
+        {
+            "provider": provider,
+            "label": meta["label"],
+            "status": "not_connected",
+            "environment_configured": bool(os.environ.get(meta["env_var"])),
+            "capabilities": meta["capabilities"],
+        }
+        for provider, meta in INTEGRATION_PROVIDERS.items()
+    ]
+
+
 # ── integrations (Phase 8) ──────────────────────────────────────────────
 # A per-job outbound webhook the recruiter configures themselves — see
 # webhooks.py's module docstring. Config is a generic JobSection, same

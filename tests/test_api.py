@@ -1073,6 +1073,31 @@ def test_recruiter_revenue_credits_both_primary_and_contributor_fully(isolated_d
     assert by_email["contributor@example.com"]["share_of_firm"] == 100.0
 
 
+def test_integrations_status_reports_not_connected_honestly(isolated_db, monkeypatch):
+    # No real OAuth/telephony credentials exist in test — must never
+    # report "connected", regardless of env vars.
+    monkeypatch.delenv("GOOGLE_OAUTH_CLIENT_ID", raising=False)
+    monkeypatch.delenv("CALENDLY_CLIENT_ID", raising=False)
+    monkeypatch.delenv("TELEPHONY_PROVIDER_API_KEY", raising=False)
+
+    resp = client.get("/integrations/status")
+    assert resp.status_code == 200, resp.text
+    statuses = resp.json()
+    providers = {s["provider"] for s in statuses}
+    assert providers == {"google_workspace", "calendly", "telephony"}
+    for s in statuses:
+        assert s["status"] == "not_connected"
+        assert s["environment_configured"] is False
+
+    monkeypatch.setenv("GOOGLE_OAUTH_CLIENT_ID", "fake-client-id-for-test")
+    resp2 = client.get("/integrations/status")
+    google = next(s for s in resp2.json() if s["provider"] == "google_workspace")
+    # Even with credentials present, there is no OAuth callback flow —
+    # still must never claim "connected".
+    assert google["status"] == "not_connected"
+    assert google["environment_configured"] is True
+
+
 def test_recruiter_revenue_with_no_priced_roles_is_empty_or_zeroed(isolated_db):
     client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
     resp = client.get("/revenue/by-recruiter").json()

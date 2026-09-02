@@ -1762,7 +1762,15 @@ function CandidatesTab({
                             <CommunicationsCard
                               roleId={roleId} candidateId={c.candidate_id} name={c.name}
                               initialPhone={c.phone} initialEmail={c.email}
+                              briefing={{
+                                whyThisCandidate: c.prioritization?.why_they_fit ?? [],
+                                keyStrengths: c.achievements.map((a) => a.fact),
+                                whatToValidate: c.prioritization?.what_to_validate ?? [],
+                                suggestedQuestions: job.state.screening?.[c.candidate_id]?.must_ask ?? [],
+                              }}
                             />
+
+                            <SchedulingCard candidateName={c.name} />
 
                             {crossJob[c.candidate_id] === "loading" && (
                               <p className="text-xs text-zinc-400">Checking other jobs…</p>
@@ -1824,6 +1832,50 @@ function CandidatesTab({
         </div>
       )}
     </div>
+  );
+}
+
+const INTERVIEW_TYPES = ["Screening call", "Hiring manager interview", "Technical interview", "Final interview"] as const;
+
+// Google Workspace / Calendly integration foundation — genuinely not
+// connected (no OAuth apps configured in this environment). Shows the
+// correct state and where a real connection would slot in, rather than
+// faking that an invite or scheduling link was sent. See
+// api.py's INTEGRATION_PROVIDERS and IntegrationsPanel on the Team page.
+function SchedulingCard({ candidateName }: { candidateName: string }) {
+  const [interviewType, setInterviewType] = useState<(typeof INTERVIEW_TYPES)[number]>(INTERVIEW_TYPES[0]);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  return (
+    <Card title="Schedule an interview">
+      <div className="flex flex-wrap items-center gap-2">
+        <select
+          value={interviewType}
+          onChange={(e) => setInterviewType(e.target.value as (typeof INTERVIEW_TYPES)[number])}
+          aria-label="Interview type"
+          className="rounded-md border border-zinc-300 px-2 py-1 text-xs outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-zinc-950"
+        >
+          {INTERVIEW_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <button
+          onClick={() => setNotice("Calendly isn't connected yet.")}
+          className="rounded-md border border-zinc-300 px-2.5 py-1 text-xs font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+        >
+          Send scheduling link
+        </button>
+        <button
+          onClick={() => setNotice("Google Calendar isn't connected yet.")}
+          className="rounded-md border border-zinc-300 px-2.5 py-1 text-xs font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+        >
+          Check availability &amp; create Meet
+        </button>
+      </div>
+      {notice && (
+        <p className="mt-2 text-xs text-amber-700 dark:text-amber-400">
+          {notice} Once connected, this sends {candidateName} a {interviewType.toLowerCase()} invite directly.
+        </p>
+      )}
+    </Card>
   );
 }
 

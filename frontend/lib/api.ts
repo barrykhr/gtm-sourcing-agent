@@ -263,6 +263,22 @@ export type RecruiterRevenue = {
 
 export const getRevenueByRecruiter = () => get<RecruiterRevenue[]>("/revenue/by-recruiter");
 
+// External integrations (Google Workspace / Calendly / telephony) —
+// account-level connection status. None are actually wired up in this
+// deployment (no OAuth apps or telephony credentials configured), so
+// this always reports "not_connected" — see api.py's INTEGRATION_PROVIDERS
+// for the honest reasoning. Never treat this as a place a real
+// connection could silently already exist.
+export type IntegrationProvider = "google_workspace" | "calendly" | "telephony";
+export type IntegrationStatus = {
+  provider: IntegrationProvider;
+  label: string;
+  status: "not_connected";
+  environment_configured: boolean;
+  capabilities: string;
+};
+export const getIntegrationsStatus = () => get<IntegrationStatus[]>("/integrations/status");
+
 // Client-facing share link (Batch B) — a rotatable token behind
 // /public/roles/{token}, the one API surface with no auth requirement.
 export const generateShareLink = (roleId: string) => post<JobSummary>(`/jobs/${roleId}/share-link`);

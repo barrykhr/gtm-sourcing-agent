@@ -67,11 +67,26 @@ const CHANNEL_LABEL: Record<CommunicationChannel, string> = {
 // through a parent's action-runner, so it drops into any page that has
 // a role_id + candidate_evaluation_id — the per-job workspace and the
 // global cross-job candidate page both use this same component.
+export type CallBriefing = {
+  whyThisCandidate: string[];
+  keyStrengths: string[];
+  whatToValidate: string[];
+  suggestedQuestions: string[];
+};
+
 export function CommunicationsCard({
-  roleId, candidateId, name, initialPhone, initialEmail, onContactSaved,
+  roleId, candidateId, name, initialPhone, initialEmail, onContactSaved, briefing,
 }: {
   roleId: string; candidateId: string; name: string; initialPhone: string; initialEmail: string;
   onContactSaved?: (phone: string, email: string) => void;
+  // Call briefing (Phone Calling batch): built entirely from data this
+  // product already generated (prioritization rationale + screening
+  // questions) — no telephony integration involved, just showing it to
+  // the recruiter right before they place a call. Undefined when the
+  // caller hasn't prioritized/screened this candidate yet, or on the
+  // global cross-job candidate page where that per-role data isn't
+  // fetched; the briefing panel simply doesn't render in that case.
+  briefing?: CallBriefing;
 }) {
   const [phone, setPhone] = useState(initialPhone);
   const [email, setEmail] = useState(initialEmail);
@@ -183,6 +198,46 @@ export function CommunicationsCard({
             </button>
           )}
         </div>
+
+        {briefing && (briefing.whyThisCandidate.length > 0 || briefing.keyStrengths.length > 0 || briefing.whatToValidate.length > 0 || briefing.suggestedQuestions.length > 0) && (
+          <details className="rounded-md border border-indigo-200 bg-indigo-50/40 p-3 text-xs dark:border-indigo-900 dark:bg-indigo-950/30" open>
+            <summary className="cursor-pointer text-xs font-semibold text-indigo-800 dark:text-indigo-300">Call briefing</summary>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              {briefing.whyThisCandidate.length > 0 && (
+                <div>
+                  <p className="font-medium uppercase tracking-wide text-[10px] text-zinc-500">Why this candidate</p>
+                  <ul className="list-disc pl-4 text-zinc-700 dark:text-zinc-300">
+                    {briefing.whyThisCandidate.slice(0, 3).map((w, i) => <li key={i}>{w}</li>)}
+                  </ul>
+                </div>
+              )}
+              {briefing.keyStrengths.length > 0 && (
+                <div>
+                  <p className="font-medium uppercase tracking-wide text-[10px] text-zinc-500">Key strengths</p>
+                  <ul className="list-disc pl-4 text-zinc-700 dark:text-zinc-300">
+                    {briefing.keyStrengths.slice(0, 3).map((s, i) => <li key={i}>{s}</li>)}
+                  </ul>
+                </div>
+              )}
+              {briefing.whatToValidate.length > 0 && (
+                <div>
+                  <p className="font-medium uppercase tracking-wide text-[10px] text-zinc-500">What to validate</p>
+                  <ul className="list-disc pl-4 text-zinc-700 dark:text-zinc-300">
+                    {briefing.whatToValidate.slice(0, 3).map((v, i) => <li key={i}>{v}</li>)}
+                  </ul>
+                </div>
+              )}
+              {briefing.suggestedQuestions.length > 0 && (
+                <div>
+                  <p className="font-medium uppercase tracking-wide text-[10px] text-zinc-500">Suggested questions</p>
+                  <ul className="list-disc pl-4 text-zinc-700 dark:text-zinc-300">
+                    {briefing.suggestedQuestions.slice(0, 3).map((q, i) => <li key={i}>{q}</li>)}
+                  </ul>
+                </div>
+              )}
+            </div>
+          </details>
+        )}
 
         <div className="flex flex-wrap gap-2">
           <button
