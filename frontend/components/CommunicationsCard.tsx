@@ -114,12 +114,15 @@ export function CommunicationsCard({
     setLoggingEntry(true);
     setRefreshing(true);
     try {
-      const { summary_task } = await logCommunication(roleId, candidateId, {
+      const { summary_task, intelligence_task } = await logCommunication(roleId, candidateId, {
         channel, direction: "outbound", content, contact_used: contactUsed, transcript,
       });
-      loadHistory(); // shows the new entry immediately, summary not yet refreshed
-      await pollTaskUntilDone(roleId, summary_task.task_id);
-      loadHistory(); // now picks up the regenerated summary
+      loadHistory(); // shows the new entry immediately, summary/intelligence not yet refreshed
+      await Promise.all([
+        pollTaskUntilDone(roleId, summary_task.task_id),
+        pollTaskUntilDone(roleId, intelligence_task.task_id),
+      ]);
+      loadHistory(); // now picks up the regenerated summary + intelligence
     } finally {
       setLoggingEntry(false);
       setRefreshing(false);
@@ -249,6 +252,68 @@ export function CommunicationsCard({
             </>
           )}
         </div>
+
+        {history?.intelligence && (
+          <div className="rounded-md border border-zinc-200 bg-zinc-50/60 p-3 dark:border-zinc-800 dark:bg-zinc-900/40">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-zinc-600 dark:text-zinc-300">Conversation intelligence</p>
+              <span
+                className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                  history.intelligence.interest_level === "High"
+                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400"
+                    : history.intelligence.interest_level === "Medium"
+                      ? "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400"
+                      : history.intelligence.interest_level === "Low"
+                        ? "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-400"
+                        : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
+                }`}
+              >
+                {history.intelligence.interest_level === "Insufficient evidence"
+                  ? "Insufficient evidence"
+                  : `${history.intelligence.interest_level} interest`}
+              </span>
+            </div>
+
+            <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+              <div><dt className="text-zinc-400">Current comp</dt><dd>{history.intelligence.current_compensation || "—"}</dd></div>
+              <div><dt className="text-zinc-400">Expected comp</dt><dd>{history.intelligence.expected_compensation || "—"}</dd></div>
+              <div><dt className="text-zinc-400">Notice period</dt><dd>{history.intelligence.notice_period || "—"}</dd></div>
+              <div><dt className="text-zinc-400">Relocation</dt><dd>{history.intelligence.relocation_willingness || "—"}</dd></div>
+            </dl>
+
+            {history.intelligence.motivation && (
+              <p className="mt-2 text-xs"><span className="text-zinc-400">Motivation: </span>{history.intelligence.motivation}</p>
+            )}
+            {history.intelligence.concerns.length > 0 && (
+              <div className="mt-2">
+                <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-400">Concerns</p>
+                <ul className="list-disc pl-4 text-xs text-zinc-600 dark:text-zinc-400">
+                  {history.intelligence.concerns.map((c, i) => <li key={i}>{c}</li>)}
+                </ul>
+              </div>
+            )}
+            {history.intelligence.risks.length > 0 && (
+              <div className="mt-2">
+                <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-400">Risks</p>
+                <ul className="list-disc pl-4 text-xs text-zinc-600 dark:text-zinc-400">
+                  {history.intelligence.risks.map((r, i) => <li key={i}>{r}</li>)}
+                </ul>
+              </div>
+            )}
+            {history.intelligence.unanswered_questions.length > 0 && (
+              <div className="mt-2">
+                <p className="text-[11px] font-medium uppercase tracking-wide text-zinc-400">Unanswered</p>
+                <ul className="list-disc pl-4 text-xs text-zinc-600 dark:text-zinc-400">
+                  {history.intelligence.unanswered_questions.map((q, i) => <li key={i}>{q}</li>)}
+                </ul>
+              </div>
+            )}
+            <p className="mt-2 border-t border-zinc-200 pt-2 text-xs font-medium dark:border-zinc-800">
+              <span className="text-zinc-400 font-normal">Talyn recommendation: </span>
+              {history.intelligence.recommendation}
+            </p>
+          </div>
+        )}
 
         <div className="flex flex-col gap-2">
           <p className="text-xs font-semibold text-zinc-500">Log a communication (email sent, call notes/transcript, or anything else)</p>

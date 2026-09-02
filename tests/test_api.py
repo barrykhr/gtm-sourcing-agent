@@ -1268,11 +1268,12 @@ def test_set_candidate_contact(isolated_db):
 
 def test_log_communication_creates_entry_and_enqueues_summary(isolated_db, fake_generate):
     from gtm_sourcing_agent import db_storage
-    from gtm_sourcing_agent.models import ConversationSummaryResult
+    from gtm_sourcing_agent.models import ConversationIntelligence, ConversationSummaryResult
 
     client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
     db_storage.merge_candidate("ae-role", "cand-1", {"name": "Jane Doe"})
     fake_generate.queue.append(ConversationSummaryResult(summary="Warm contact so far.", open_items=["Follow up Friday"]))
+    fake_generate.queue.append(ConversationIntelligence(interest_level="High"))
 
     resp = client.post(
         "/jobs/ae-role/candidates/cand-1/communications",
@@ -1285,40 +1286,103 @@ def test_log_communication_creates_entry_and_enqueues_summary(isolated_db, fake_
 
     task = _wait_for_task("ae-role", body["summary_task"]["task_id"])
     assert task["status"] == "succeeded", task
+    intelligence_task = _wait_for_task("ae-role", body["intelligence_task"]["task_id"])
+    assert intelligence_task["status"] == "succeeded", intelligence_task
 
     fetched = client.get("/jobs/ae-role/candidates/cand-1/communications").json()
     assert len(fetched["entries"]) == 1
     assert fetched["summary"] == "Warm contact so far."
     assert fetched["based_on_entries"] == 1
-    assert fake_generate.calls[0]["stage"] == "conversation_summary"
+    assert fetched["intelligence"]["interest_level"] == "High"
+    assert {c["stage"] for c in fake_generate.calls} == {"conversation_summary", "conversation_intelligence"}
 
 
 def test_communications_history_accumulates_across_channels(isolated_db, fake_generate):
     from gtm_sourcing_agent import db_storage
-    from gtm_sourcing_agent.models import ConversationSummaryResult
+    from gtm_sourcing_agent.models import ConversationIntelligence, ConversationSummaryResult
 
     client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
     db_storage.merge_candidate("ae-role", "cand-1", {"name": "Jane Doe"})
 
     fake_generate.queue.append(ConversationSummaryResult(summary="First contact."))
+    fake_generate.queue.append(ConversationIntelligence())
     r1 = client.post(
         "/jobs/ae-role/candidates/cand-1/communications",
         json={"channel": "email", "content": "Reaching out about the role."},
     )
     _wait_for_task("ae-role", r1.json()["summary_task"]["task_id"])
+    _wait_for_task("ae-role", r1.json()["intelligence_task"]["task_id"])
 
     fake_generate.queue.append(ConversationSummaryResult(summary="Called and discussed comp expectations."))
+    fake_generate.queue.append(ConversationIntelligence(current_compensation="$120k", interest_level="Medium"))
     r2 = client.post(
         "/jobs/ae-role/candidates/cand-1/communications",
         json={"channel": "call", "content": "20-min call, discussed comp.", "transcript": "Recruiter: Hi Jane... Jane: Sure, happy to chat."},
     )
     _wait_for_task("ae-role", r2.json()["summary_task"]["task_id"])
+    _wait_for_task("ae-role", r2.json()["intelligence_task"]["task_id"])
 
     fetched = client.get("/jobs/ae-role/candidates/cand-1/communications").json()
     assert [e["channel"] for e in fetched["entries"]] == ["email", "call"]
     assert fetched["entries"][1]["transcript"].startswith("Recruiter:")
     assert fetched["summary"] == "Called and discussed comp expectations."
     assert fetched["based_on_entries"] == 2
+
+
+def test_conversation_intelligence_extracts_structured_fields(isolated_db, fake_generate):
+    from gtm_sourcing_agent import db_storage
+    from gtm_sourcing_agent.models import ConversationIntelligence, ConversationSummaryResult
+
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    db_storage.merge_candidate("ae-role", "cand-1", {"name": "Jane Doe"})
+    fake_generate.queue.append(ConversationSummaryResult(summary="Discussed comp and notice."))
+    fake_generate.queue.append(ConversationIntelligence(
+        current_compensation="$120k", expected_compensation="$140k", notice_period="30 days",
+        interest_level="High", concerns=["Limited remote flexibility"],
+        recommendation="Move to interview",
+    ))
+
+    resp = client.post(
+        "/jobs/ae-role/candidates/cand-1/communications",
+        json={"channel": "call", "content": "Discussed comp, notice period, and interest."},
+    )
+    _wait_for_task("ae-role", resp.json()["summary_task"]["task_id"])
+    _wait_for_task("ae-role", resp.json()["intelligence_task"]["task_id"])
+
+    fetched = client.get("/jobs/ae-role/candidates/cand-1/communications").json()
+    intel = fetched["intelligence"]
+    assert intel["current_compensation"] == "$120k"
+    assert intel["expected_compensation"] == "$140k"
+    assert intel["notice_period"] == "30 days"
+    assert intel["interest_level"] == "High"
+    assert intel["concerns"] == ["Limited remote flexibility"]
+    assert intel["recommendation"] == "Move to interview"
+
+    # Also reachable off the candidate's own record (Candidates tab reads it there too).
+    listed = client.get("/jobs/ae-role/candidates").json()
+    assert listed[0]["conversation_intelligence"]["interest_level"] == "High"
+
+
+def test_conversation_intelligence_defaults_to_insufficient_evidence(isolated_db, fake_generate):
+    from gtm_sourcing_agent import db_storage
+    from gtm_sourcing_agent.models import ConversationIntelligence, ConversationSummaryResult
+
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    db_storage.merge_candidate("ae-role", "cand-1", {"name": "Jane Doe"})
+    fake_generate.queue.append(ConversationSummaryResult(summary="Brief first touch."))
+    fake_generate.queue.append(ConversationIntelligence())  # nothing substantive discussed yet
+
+    resp = client.post(
+        "/jobs/ae-role/candidates/cand-1/communications",
+        json={"channel": "email", "content": "Sent an intro note."},
+    )
+    _wait_for_task("ae-role", resp.json()["summary_task"]["task_id"])
+    _wait_for_task("ae-role", resp.json()["intelligence_task"]["task_id"])
+
+    intel = client.get("/jobs/ae-role/candidates/cand-1/communications").json()["intelligence"]
+    assert intel["interest_level"] == "Insufficient evidence"
+    assert intel["recommendation"] == "Insufficient evidence"
+    assert intel["current_compensation"] == ""
 
 
 def test_log_communication_404_for_missing_candidate(isolated_db):

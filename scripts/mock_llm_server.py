@@ -22,6 +22,7 @@ from gtm_sourcing_agent import db_storage, llm_client, orchestrator  # noqa: E40
 from gtm_sourcing_agent.models import (  # noqa: E402
     Candidate,
     CandidatePrioritization,
+    ConversationIntelligence,
     ConversationSummaryResult,
     HiringManagerCalibration,
     IdealCandidateProfile,
@@ -296,6 +297,19 @@ def _fake_conversation_summary(**_) -> ConversationSummaryResult:
     )
 
 
+def _fake_conversation_intelligence(**_) -> ConversationIntelligence:
+    return ConversationIntelligence(
+        current_compensation="(mock) $165,000 base + $85,000 variable",
+        expected_compensation="(mock) $190,000 OTE",
+        notice_period="(mock) 30 days",
+        interest_level="High",
+        concerns=["(mock) Wants clarity on territory size before proceeding"],
+        risks=["(mock) Currently interviewing with one other company"],
+        unanswered_questions=["(mock) Has not confirmed relocation willingness"],
+        recommendation="(mock) Move to interview",
+    )
+
+
 def _fake_outreach(**_) -> OutreachSequence:
     return OutreachSequence(
         candidate_id="",
@@ -317,6 +331,7 @@ _BY_STAGE = {
     "screening": _fake_screening,
     "outreach": _fake_outreach,
     "conversation_summary": _fake_conversation_summary,
+    "conversation_intelligence": _fake_conversation_intelligence,
 }
 
 

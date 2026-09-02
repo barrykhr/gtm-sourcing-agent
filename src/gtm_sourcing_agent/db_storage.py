@@ -58,6 +58,7 @@ def load_role(role_id: str) -> dict[str, Any]:
         for row in rows:
             state[row.section_key] = row.data
         client_shares = state.get("client_shares") or {}
+        conversation_intelligence = state.get("conversation_intelligence") or {}
         evaluations = session.scalars(
             select(CandidateEvaluation).where(CandidateEvaluation.role_id == role_id)
         ).all()
@@ -75,6 +76,7 @@ def load_role(role_id: str) -> dict[str, Any]:
                 ),
                 "conversation_summary_entry_count": ev.conversation_summary_entry_count,
                 "client_visible": bool(client_shares.get(ev.candidate_evaluation_id)),
+                "conversation_intelligence": conversation_intelligence.get(ev.candidate_evaluation_id),
             }
             if ev.prioritization is not None:
                 state["prioritizations"][ev.candidate_evaluation_id] = ev.prioritization
@@ -643,6 +645,18 @@ def revoke_share_link(role_id: str) -> dict[str, Any]:
         job.share_token = None
         session.commit()
         return _job_dict(job)
+
+
+def set_conversation_intelligence(role_id: str, candidate_id: str, intelligence: dict[str, Any]) -> None:
+    """Structured extraction over a candidate's communication log
+    (Conversation Intelligence batch) — stored as a JobSection, same
+    zero-migration-risk reasoning as set_candidate_client_visible below,
+    keyed by candidate_id since one role has many candidates."""
+    if candidate_id not in load_role(role_id).get("candidates", {}):
+        raise ValueError(f"candidate '{candidate_id}' not found for role '{role_id}'")
+    all_intelligence = dict(load_role(role_id).get("conversation_intelligence") or {})
+    all_intelligence[candidate_id] = intelligence
+    merge_section(role_id, "conversation_intelligence", all_intelligence)
 
 
 def set_candidate_client_visible(role_id: str, candidate_id: str, visible: bool) -> dict[str, bool]:

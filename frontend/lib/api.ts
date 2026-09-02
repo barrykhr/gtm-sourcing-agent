@@ -552,11 +552,28 @@ export type CommunicationLogEntry = {
   logged_by: string;
   created_at: string;
 };
+export type InterestLevel = "High" | "Medium" | "Low" | "Insufficient evidence";
+export type ConversationIntelligence = {
+  current_compensation: string;
+  expected_compensation: string;
+  notice_period: string;
+  location: string;
+  relocation_willingness: string;
+  relevant_experience: string;
+  leadership: string;
+  motivation: string;
+  interest_level: InterestLevel;
+  concerns: string[];
+  risks: string[];
+  unanswered_questions: string[];
+  recommendation: string;
+};
 export type ConversationHistory = {
   entries: CommunicationLogEntry[];
   summary: string;
   updated_at: string | null;
   based_on_entries: number;
+  intelligence: ConversationIntelligence | null;
 };
 
 export const setCandidateContact = (roleId: string, candidateId: string, phone?: string, email?: string) =>
@@ -567,15 +584,16 @@ export const setCandidateContact = (roleId: string, candidateId: string, phone?:
 export const getCommunications = (roleId: string, candidateId: string) =>
   get<ConversationHistory>(`/jobs/${roleId}/candidates/${candidateId}/communications`);
 
-// The summary regeneration is async (an LLM call) — logging itself is
-// synchronous and returns immediately with the created entry; the
-// caller polls summary_task if it wants to know when the refreshed
-// summary is ready, same task-polling pattern as every other AI stage.
+// The summary/intelligence regeneration is async (an LLM call each) —
+// logging itself is synchronous and returns immediately with the
+// created entry; the caller polls summary_task/intelligence_task if it
+// wants to know when the refreshed output is ready, same task-polling
+// pattern as every other AI stage.
 export const logCommunication = async (
   roleId: string, candidateId: string,
   body: { channel: CommunicationChannel; direction?: CommunicationDirection; content: string; transcript?: string; contact_used?: string },
 ) => {
-  const resp = await post<{ entry: CommunicationLogEntry; summary_task: Task }>(
+  const resp = await post<{ entry: CommunicationLogEntry; summary_task: Task; intelligence_task: Task }>(
     `/jobs/${roleId}/candidates/${candidateId}/communications`, body,
   );
   return resp;

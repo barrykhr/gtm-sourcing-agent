@@ -17,7 +17,7 @@ storage, and this stage has no CLI pipeline entry."""
 import json
 
 from .. import db_storage, llm_client
-from ..models import ConversationSummaryResult
+from ..models import ConversationIntelligence, ConversationSummaryResult
 
 
 def run(role_id: str, candidate_id: str, *, storage_backend=db_storage) -> ConversationSummaryResult:
@@ -35,4 +35,26 @@ def run(role_id: str, candidate_id: str, *, storage_backend=db_storage) -> Conve
     )
     result = llm_client.generate(prompt, ConversationSummaryResult, stage="conversation_summary")
     storage_backend.set_conversation_summary(role_id, candidate_id, result.summary, len(entries))
+    return result
+
+
+def run_intelligence(role_id: str, candidate_id: str, *, storage_backend=db_storage) -> ConversationIntelligence:
+    """Conversation Intelligence batch: structured extraction over the
+    same communication log `run` above summarizes in prose — current/
+    expected comp, notice period, interest level, concerns, risks. Same
+    checkpoint as `run`: requires at least one logged communication."""
+    candidate = storage_backend.require_section(role_id, "candidates").get(candidate_id)
+    if candidate is None:
+        raise ValueError(f"candidate '{candidate_id}' not found for role '{role_id}'")
+    entries = storage_backend.list_communications(role_id, candidate_id)
+    if not entries:
+        raise ValueError(f"candidate '{candidate_id}' has no communications logged yet")
+
+    prompt = llm_client.render_prompt(
+        "conversation_intelligence.md",
+        candidate_json=json.dumps(candidate),
+        entries_json=json.dumps(entries),
+    )
+    result = llm_client.generate(prompt, ConversationIntelligence, stage="conversation_intelligence")
+    storage_backend.set_conversation_intelligence(role_id, candidate_id, result.model_dump())
     return result

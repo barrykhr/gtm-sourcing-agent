@@ -10,7 +10,7 @@ from .interview_questions import (
     RoleInterviewQuestions,
 )
 from .outreach import OutreachSequence
-from .conversation import ConversationSummaryResult
+from .conversation import ConversationIntelligence, ConversationSummaryResult
 from .funnel import FunnelStage, FunnelRecord, FunnelMetrics, ForecastAssumptions, ForecastResult
 
 __all__ = [
@@ -33,6 +33,7 @@ __all__ = [
     "RoleInterviewQuestions",
     "OutreachSequence",
     "ConversationSummaryResult",
+    "ConversationIntelligence",
     "FunnelStage",
     "FunnelRecord",
     "FunnelMetrics",

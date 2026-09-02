@@ -624,6 +624,12 @@ def _run_conversation_summary(role_id: str, args: dict[str, Any]) -> dict[str, A
     return conversation_summary_stage.run(role_id, args["candidate_id"], storage_backend=db_storage).model_dump()
 
 
+def _run_conversation_intelligence(role_id: str, args: dict[str, Any]) -> dict[str, Any]:
+    return conversation_summary_stage.run_intelligence(
+        role_id, args["candidate_id"], storage_backend=db_storage
+    ).model_dump()
+
+
 for _kind, _fn in [
     ("intake", _run_intake),
     ("calibrate", _run_calibrate),
@@ -636,6 +642,7 @@ for _kind, _fn in [
     ("screen", _run_screen),
     ("outreach", _run_outreach),
     ("conversation_summary", _run_conversation_summary),
+    ("conversation_intelligence", _run_conversation_intelligence),
 ]:
     task_queue.register_runner(_kind, _fn)
 
@@ -1020,7 +1027,9 @@ def get_communications(role_id: str, candidate_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail=f"job '{role_id}' not found")
     entries = _run_stage(db_storage.list_communications, role_id, candidate_id)
     summary = _run_stage(db_storage.get_conversation_summary, role_id, candidate_id)
-    return {"entries": entries, **summary}
+    candidate = db_storage.load_role(role_id).get("candidates", {}).get(candidate_id, {})
+    intelligence = candidate.get("conversation_intelligence")
+    return {"entries": entries, "intelligence": intelligence, **summary}
 
 
 @app.post("/jobs/{role_id}/candidates/{candidate_id}/communications", status_code=202)
@@ -1034,7 +1043,8 @@ def log_communication(
     )
     _log(request, role_id, f"logged {body.channel} communication", candidate_id=candidate_id)
     task = task_queue.enqueue(role_id, "conversation_summary", {"candidate_id": candidate_id})
-    return {"entry": entry, "summary_task": task}
+    intelligence_task = task_queue.enqueue(role_id, "conversation_intelligence", {"candidate_id": candidate_id})
+    return {"entry": entry, "summary_task": task, "intelligence_task": intelligence_task}
 
 
 # ── funnel ───────────────────────────────────────────────────────────────
