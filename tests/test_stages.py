@@ -76,6 +76,38 @@ def test_intake_persists_result_and_includes_jd_text_in_prompt(isolated_workspac
     assert fake_generate.calls[0]["stage"] == "intake"
 
 
+def test_intake_update_fields_corrects_the_recruiter_review_screen(isolated_workspace, fake_generate):
+    fixed = JobDescription(
+        raw_jd_text="x", company="Acme", role_title="AE", function="Sales",
+        seniority="Mid", geography="US", role_objective="Own net-new logos.",
+    )
+    fake_generate.queue.append(fixed)
+    intake.run("acme-ae-2026", "Enterprise AE.")
+
+    result = intake.update_fields("acme-ae-2026", seniority="Senior", compensation="$150k OTE")
+
+    assert result.seniority == "Senior"
+    assert result.compensation == "$150k OTE"
+    assert result.role_title == "AE"  # untouched fields survive the edit
+    assert storage.load_role("acme-ae-2026")["job_description"]["seniority"] == "Senior"
+
+
+def test_intake_update_fields_rejects_a_non_editable_field(isolated_workspace, fake_generate):
+    fake_generate.queue.append(
+        JobDescription(raw_jd_text="x", company="Acme", role_title="AE", function="Sales",
+                       seniority="Mid", geography="US", role_objective="Own net-new logos.")
+    )
+    intake.run("acme-ae-2026", "Enterprise AE.")
+
+    with pytest.raises(ValueError, match="company"):
+        intake.update_fields("acme-ae-2026", company="Different Co")
+
+
+def test_intake_update_fields_requires_jd_to_exist_first(isolated_workspace, fake_generate):
+    with pytest.raises(ValueError, match="job_description"):
+        intake.update_fields("acme-ae-2026", seniority="Senior")
+
+
 def test_calibration_requires_job_description_first(isolated_workspace, fake_generate):
     with pytest.raises(ValueError, match="job_description"):
         calibration.run("acme-ae-2026")
@@ -182,6 +214,24 @@ def test_candidate_analysis_slugifies_missing_id_and_sets_source_url(isolated_wo
     assert result.candidate_id == "acme-ae-2026-jane-o-doe"
     assert result.source_url == "https://linkedin.com/in/janedoe"
     assert result.candidate_id in storage.load_role("acme-ae-2026")["candidates"]
+
+
+def test_candidate_analysis_extracted_contact_does_not_break_the_plain_storage_backend(
+    isolated_workspace, fake_generate
+):
+    """The plain file storage backend (CLI) predates the product layer's
+    dedicated contact-info columns and has no set_candidate_contact — the
+    resume-extraction auto-populate step must be a no-op there, not an
+    AttributeError, even when the model actually extracted an email/phone."""
+    storage.merge_section("acme-ae-2026", "icp", {"must_have": ["SaaS"]})
+    fake_generate.queue.append(
+        Candidate(candidate_id="", name="Jane O'Doe", email="jane@example.com", phone="+1 555-0100")
+    )
+
+    result = candidate_analysis.run("acme-ae-2026", "resume text", "sales")
+
+    assert result.email == "jane@example.com"
+    assert result.phone == "+1 555-0100"
 
 
 def test_prioritization_never_lets_the_model_set_recruiter_decision(isolated_workspace, fake_generate):

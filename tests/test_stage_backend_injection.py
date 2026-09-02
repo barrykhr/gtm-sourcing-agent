@@ -6,8 +6,8 @@ de-risks the FastAPI layer, which passes db_storage into every stage call.
 import pytest
 
 from gtm_sourcing_agent import db, db_storage, llm_client
-from gtm_sourcing_agent.models import HiringManagerCalibration, JobDescription
-from gtm_sourcing_agent.stages import calibration, intake
+from gtm_sourcing_agent.models import Candidate, HiringManagerCalibration, JobDescription
+from gtm_sourcing_agent.stages import calibration, candidate_analysis, intake
 
 
 @pytest.fixture
@@ -52,6 +52,35 @@ def test_calibration_via_db_backend_still_gates_on_missing_intake(isolated_db, f
     with pytest.raises(ValueError, match="job_description"):
         calibration.run("acme-ae-2026", storage_backend=db_storage)
     assert fake_generate.calls == []
+
+
+def test_resume_extracted_contact_auto_populates_the_dedicated_contact_columns(isolated_db, fake_generate):
+    """The candidate model's own email/phone fields are the raw extraction
+    record; set_candidate_contact's columns are the current/editable value
+    the WhatsApp/call UI reads. On the real (db_storage) backend, creating
+    a candidate from a resume should seed the latter from the former, so a
+    recruiter never has to retype what the resume already gave us."""
+    db_storage.merge_section("acme-ae-2026", "icp", {"must_have": ["SaaS"]})
+    fake_generate.queue.append(
+        Candidate(candidate_id="cand-1", name="Jane Doe", email="jane@example.com", phone="+1 555-0100")
+    )
+
+    candidate_analysis.run("acme-ae-2026", "resume text", "sales", storage_backend=db_storage)
+
+    stored = db_storage.load_role("acme-ae-2026")["candidates"]["cand-1"]
+    assert stored["phone"] == "+1 555-0100"
+    assert stored["email"] == "jane@example.com"
+
+
+def test_resume_with_no_contact_info_leaves_columns_unset(isolated_db, fake_generate):
+    db_storage.merge_section("acme-ae-2026", "icp", {"must_have": ["SaaS"]})
+    fake_generate.queue.append(Candidate(candidate_id="cand-2", name="Jo Nobody"))
+
+    candidate_analysis.run("acme-ae-2026", "resume text", "sales", storage_backend=db_storage)
+
+    stored = db_storage.load_role("acme-ae-2026")["candidates"]["cand-2"]
+    assert stored["phone"] == ""
+    assert stored["email"] == ""
 
 
 def test_file_backend_and_db_backend_are_fully_isolated(isolated_db, fake_generate, tmp_path, monkeypatch):

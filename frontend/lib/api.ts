@@ -117,6 +117,7 @@ export type Candidate = {
   current_company: string;
   current_title: string;
   location: string;
+  total_experience: string;
   current_ctc: string;
   expected_ctc: string;
   notice_period: string;
@@ -348,6 +349,18 @@ async function waitForTask<T>(roleId: string, task: Task, onStatus?: (t: Task) =
 
 export const runIntake = async (roleId: string, jdText: string) =>
   waitForTask<Json>(roleId, await post<Task>(`/jobs/${roleId}/intake`, { jd_text: jdText }));
+
+// JD file upload — extraction only (no LLM call), so the recruiter can
+// review/edit the extracted text before it goes through the exact same
+// "Analyse JD" path (runIntake above) the existing paste flow always used.
+export const uploadJdFile = async (roleId: string, file: File) => {
+  const formData = new FormData();
+  formData.append("file", file);
+  return postForm<{ text: string }>(`/jobs/${roleId}/intake/upload`, formData);
+};
+
+export const updateJobDescription = async (roleId: string, fields: Partial<Json>) =>
+  patch<Json>(`/jobs/${roleId}/job-description`, fields);
 
 export const runCalibrate = async (roleId: string) =>
   waitForTask<Json>(roleId, await post<Task>(`/jobs/${roleId}/calibrate`));

@@ -53,7 +53,9 @@ import {
   testWebhook,
   updateFunnelStage,
   updateIcpCriteria,
+  updateJobDescription,
   uploadCandidate,
+  uploadJdFile,
 } from "@/lib/api";
 import { StatusChip, rygVariant, tierVariant } from "@/components/StatusChip";
 import { CopilotPanel } from "@/components/CopilotPanel";
@@ -571,26 +573,86 @@ type StageProps = {
 // ── Overview ───────────────────────────────────────────────────────────
 
 function OverviewTab({ job, busy, runAction }: StageProps) {
+  const [jdMode, setJdMode] = useState<"paste" | "upload">("paste");
   const [jdText, setJdText] = useState("");
+  const [jdFile, setJdFile] = useState<File | null>(null);
+  const [extracting, setExtracting] = useState(false);
+  const [extractError, setExtractError] = useState<string | null>(null);
   const jd: Json | undefined = job.state.job_description;
+
+  async function extractFromFile() {
+    if (!jdFile) return;
+    setExtracting(true);
+    setExtractError(null);
+    try {
+      const { text } = await uploadJdFile(job.role_id, jdFile);
+      setJdText(text);
+      setJdMode("paste"); // land back in the same box so it's reviewable/editable before Analyse JD
+    } catch (e) {
+      setExtractError(e instanceof ApiError ? e.message : "Could not read that file.");
+    } finally {
+      setExtracting(false);
+    }
+  }
 
   if (!jd) {
     return (
       <div className="flex flex-col gap-4">
         <Card title="Analyse the job description">
-          <textarea
-            value={jdText}
-            onChange={(e) => setJdText(e.target.value)}
-            rows={10}
-            placeholder="Paste the JD here…"
-            className="w-full rounded-md border border-zinc-300 p-3 text-sm outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-zinc-950"
-          />
-          <div className="mt-3">
-            <ActionButton
-              label="Analyse JD" busyLabel="Analysing…" busy={busy === "intake"}
-              disabled={!jdText.trim()}
-              onClick={() => runAction("intake", () => runIntake(job.role_id, jdText))}
-            />
+          <div className="flex flex-col gap-3">
+            <div className="flex gap-1 rounded-md border border-zinc-300 p-1 text-sm dark:border-zinc-700 w-fit">
+              {(["paste", "upload"] as const).map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setJdMode(m)}
+                  className={`rounded px-3 py-1 font-medium ${
+                    jdMode === m
+                      ? "bg-indigo-700 text-white"
+                      : "text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  }`}
+                >
+                  {m === "paste" ? "Paste text" : "Upload file"}
+                </button>
+              ))}
+            </div>
+
+            {jdMode === "paste" ? (
+              <textarea
+                value={jdText}
+                onChange={(e) => setJdText(e.target.value)}
+                rows={10}
+                placeholder="Paste the JD here…"
+                className="w-full rounded-md border border-zinc-300 p-3 text-sm outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-zinc-950"
+              />
+            ) : (
+              <div>
+                <input
+                  type="file"
+                  accept=".pdf,.docx,.txt"
+                  onChange={(e) => setJdFile(e.target.files?.[0] ?? null)}
+                  className="w-full rounded-md border border-zinc-300 p-3 text-sm outline-none file:mr-3 file:rounded file:border-0 file:bg-zinc-100 file:px-3 file:py-1.5 file:text-sm file:font-medium hover:file:bg-zinc-200 dark:border-zinc-700 dark:bg-zinc-950 dark:file:bg-zinc-800 dark:hover:file:bg-zinc-700"
+                />
+                <p className="mt-1 text-xs text-zinc-500">
+                  PDF, DOCX, or TXT — text is extracted, then you review/edit it below before analysing.
+                </p>
+                <button
+                  onClick={extractFromFile}
+                  disabled={!jdFile || extracting}
+                  className="mt-2 rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                >
+                  {extracting ? "Reading file…" : "Extract text"}
+                </button>
+                {extractError && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{extractError}</p>}
+              </div>
+            )}
+
+            <div>
+              <ActionButton
+                label="Analyse JD" busyLabel="Analysing…" busy={busy === "intake"}
+                disabled={!jdText.trim()}
+                onClick={() => runAction("intake", () => runIntake(job.role_id, jdText))}
+              />
+            </div>
           </div>
         </Card>
         <ActivityFeed roleId={job.role_id} />
@@ -600,18 +662,22 @@ function OverviewTab({ job, busy, runAction }: StageProps) {
 
   return (
     <div className="flex flex-col gap-4">
+      <JdReviewCard roleId={job.role_id} jd={jd} busy={busy} runAction={runAction} />
       <div className="grid gap-4 md:grid-cols-2">
-        <Card title="Role">
-          <dl className="space-y-1 text-sm">
-            <Row label="Company" value={jd.company} />
-            <Row label="Title" value={jd.role_title} />
-            <Row label="Seniority" value={jd.seniority} />
-            <Row label="Geography" value={jd.geography} />
-            <Row label="Objective" value={jd.role_objective} />
-          </dl>
-        </Card>
         <Card title="Must-haves">
           <List items={jd.must_have_requirements} />
+        </Card>
+        <Card title="Nice-to-haves">
+          <List items={jd.nice_to_have_requirements} />
+        </Card>
+        <Card title="Core responsibilities">
+          <List items={jd.core_responsibilities} />
+        </Card>
+        <Card title="Industry / segment">
+          <dl className="space-y-1 text-sm">
+            <Row label="Industry" value={jd.industry_domain} fallback="Not stated" />
+            <Row label="Segment" value={jd.customer_segment} fallback="Not stated" />
+          </dl>
         </Card>
         {jd.contradictions?.length > 0 && (
           <Card title="Contradictions flagged">
@@ -626,6 +692,88 @@ function OverviewTab({ job, busy, runAction }: StageProps) {
       </div>
       <ActivityFeed roleId={job.role_id} />
     </div>
+  );
+}
+
+// "Here's what we understood" — the structured JD review, with a
+// recruiter correction path (updateJobDescription) for the scalar fields
+// most likely to need a fix (title/seniority/location/comp), same
+// deterministic-edit category as ICP's rubric tuning.
+function JdReviewCard({
+  roleId, jd, busy, runAction,
+}: { roleId: string; jd: Json; busy: string | null; runAction: (name: string, action: () => Promise<unknown>) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState({
+    role_title: jd.role_title ?? "", seniority: jd.seniority ?? "",
+    geography: jd.geography ?? "", compensation: jd.compensation ?? "",
+  });
+
+  return (
+    <Card title="Here's what we understood">
+      {editing ? (
+        <div className="flex flex-col gap-2">
+          <LabeledInput label="Title" value={draft.role_title} onChange={(v) => setDraft((d) => ({ ...d, role_title: v }))} />
+          <LabeledInput label="Seniority" value={draft.seniority} onChange={(v) => setDraft((d) => ({ ...d, seniority: v }))} />
+          <LabeledInput label="Geography" value={draft.geography} onChange={(v) => setDraft((d) => ({ ...d, geography: v }))} />
+          <LabeledInput label="Compensation" value={draft.compensation} onChange={(v) => setDraft((d) => ({ ...d, compensation: v }))} placeholder="Not stated in the JD" />
+          <div className="mt-1 flex gap-2">
+            <button
+              onClick={() => runAction("jd-edit", () => updateJobDescription(roleId, draft).then(() => setEditing(false)))}
+              disabled={busy === "jd-edit"}
+              className="rounded-md bg-indigo-700 px-2.5 py-1 text-xs font-medium text-white hover:bg-indigo-800 disabled:opacity-50"
+            >
+              {busy === "jd-edit" ? "Saving…" : "Save correction"}
+            </button>
+            <button
+              onClick={() => setEditing(false)}
+              className="rounded-md border border-zinc-300 px-2.5 py-1 text-xs hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <dl className="space-y-1 text-sm">
+            <Row label="Company" value={jd.company} />
+            <Row label="Title" value={jd.role_title} />
+            <Row label="Seniority" value={jd.seniority} />
+            <Row label="Geography" value={jd.geography} />
+            <Row label="Compensation" value={jd.compensation} fallback="Not stated in the JD" />
+            <Row label="Experience" value={jd.relevant_years_experience} fallback="Not stated in the JD" />
+            <Row label="Objective" value={jd.role_objective} />
+          </dl>
+          <button
+            onClick={() => {
+              setDraft({
+                role_title: jd.role_title ?? "", seniority: jd.seniority ?? "",
+                geography: jd.geography ?? "", compensation: jd.compensation ?? "",
+              });
+              setEditing(true);
+            }}
+            className="mt-2 rounded-md border border-zinc-300 px-2.5 py-1 text-xs font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+          >
+            Correct extracted info
+          </button>
+        </>
+      )}
+    </Card>
+  );
+}
+
+function LabeledInput({
+  label, value, onChange, placeholder,
+}: { label: string; value: string; onChange: (v: string) => void; placeholder?: string }) {
+  return (
+    <label className="flex flex-col gap-1 text-xs text-zinc-500">
+      {label}
+      <input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="rounded-md border border-zinc-300 px-2 py-1 text-sm text-zinc-900 outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+      />
+    </label>
   );
 }
 
@@ -659,11 +807,11 @@ function ActivityFeed({ roleId }: { roleId: string }) {
   );
 }
 
-function Row({ label, value }: { label: string; value?: string }) {
+function Row({ label, value, fallback = "—" }: { label: string; value?: string; fallback?: string }) {
   return (
     <div className="flex gap-2">
       <dt className="w-24 shrink-0 text-zinc-500">{label}</dt>
-      <dd>{value || "—"}</dd>
+      <dd>{value || fallback}</dd>
     </div>
   );
 }
@@ -1455,6 +1603,17 @@ function CandidatesTab({
                             >
                               {busy === `scr-${c.candidate_id}` ? "Writing…" : "Generate screening questions"}
                             </button>
+
+                            <Card title="Extracted from resume">
+                              <dl className="space-y-1 text-sm">
+                                <Row label="Email" value={c.email} fallback="Not available" />
+                                <Row label="Phone" value={c.phone} fallback="Not available" />
+                                <Row label="Total experience" value={c.total_experience} fallback="Not available" />
+                              </dl>
+                              <p className="mt-2 text-xs text-zinc-400">
+                                Pulled automatically from the uploaded resume — correct it in Contact below if needed.
+                              </p>
+                            </Card>
 
                             <Card title="Compensation & availability">
                               <dl className="space-y-1 text-sm">

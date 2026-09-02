@@ -12,7 +12,9 @@ structure, role objective, core responsibilities, must-have requirements,
 nice-to-have requirements, transferable experience, disqualifiers,
 industry/domain, customer segment, product exposure, technical
 requirements, commercial requirements, leadership requirements, relevant
-years of experience.
+years of experience, and compensation (salary/OTE/band) if the JD states
+one — leave `compensation` empty if it's never mentioned, don't estimate
+a figure from role/seniority.
 
 Then classify every meaningful requirement into exactly one of:
 - explicit — stated directly in the JD

@@ -37,4 +37,15 @@ def run(
     if source_url and not result.source_url:
         result.source_url = source_url
     storage_backend.merge_candidate(role_id, result.candidate_id, result.model_dump())
+    # Auto-populate the same phone/email fields the WhatsApp/call handoff
+    # reads (set_candidate_contact) so a recruiter never re-types contact
+    # info the resume already gave us. None means "leave unchanged" —
+    # only set when the extraction actually found something, and this
+    # only runs at creation (before any recruiter correction could exist).
+    # hasattr-guarded: the CLI's plain storage backend predates the
+    # product layer's contact-info concept and doesn't implement this.
+    if (result.email or result.phone) and hasattr(storage_backend, "set_candidate_contact"):
+        storage_backend.set_candidate_contact(
+            role_id, result.candidate_id, phone=result.phone or None, email=result.email or None
+        )
     return result

@@ -180,9 +180,12 @@ def _fake_candidate(**_) -> Candidate:
     return Candidate(
         candidate_id="",
         name=name,
+        email=f"{name.lower().replace(' ', '.')}@example.com",
+        phone="+1 512-555-0142",
         current_company="Samsara",
         current_title="Enterprise Account Executive",
         location="Austin, TX",
+        total_experience="6 years",
         current_ctc="$165,000 base + $85,000 variable",
         expected_ctc="$190,000 OTE",
         notice_period="30 days",

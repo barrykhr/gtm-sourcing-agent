@@ -343,22 +343,42 @@ def _run_tool_loop(
 
     tool_calls: list[dict[str, Any]] = []
     final_text = ""
-    for message in runner:
-        content = [block.model_dump() for block in message.content]
-        messages.append({"role": "assistant", "content": content})
-        for block in content:
-            if block.get("type") == "text":
-                final_text = block.get("text", "")
-            elif block.get("type") == "tool_use":
-                tool_calls.append({"name": block["name"], "input": block["input"], "id": block["id"]})
+    try:
+        for message in runner:
+            content = [block.model_dump() for block in message.content]
+            messages.append({"role": "assistant", "content": content})
+            for block in content:
+                if block.get("type") == "text":
+                    final_text = block.get("text", "")
+                elif block.get("type") == "tool_use":
+                    tool_calls.append({"name": block["name"], "input": block["input"], "id": block["id"]})
 
-        tool_response = runner.generate_tool_call_response()
-        if tool_response is not None:
-            messages.append(tool_response)
-            for result_block in tool_response.get("content", []):
-                for tc in tool_calls:
-                    if tc.get("id") == result_block.get("tool_use_id"):
-                        tc["result"] = result_block.get("content")
+            tool_response = runner.generate_tool_call_response()
+            if tool_response is not None:
+                messages.append(tool_response)
+                for result_block in tool_response.get("content", []):
+                    for tc in tool_calls:
+                        if tc.get("id") == result_block.get("tool_use_id"):
+                            tc["result"] = result_block.get("content")
+    # Mirrors llm_client.generate()'s exception mapping — without this, the
+    # copilot's own model call (as opposed to a stage call it delegates to)
+    # crashed with a raw SDK exception that api.py's _run_stage doesn't
+    # catch (it only catches ValueError/RuntimeError), surfacing as an
+    # opaque 500 with no indication of what actually failed.
+    except anthropic.AuthenticationError as e:
+        raise RuntimeError("Anthropic API authentication failed — check ANTHROPIC_API_KEY.") from e
+    except anthropic.PermissionDeniedError as e:
+        raise RuntimeError("Anthropic API key lacks required permissions.") from e
+    except anthropic.NotFoundError as e:
+        raise RuntimeError(f"Anthropic model '{model}' not found.") from e
+    except anthropic.RateLimitError as e:
+        raise RuntimeError("Anthropic API rate limit hit — retry later.") from e
+    except anthropic.BadRequestError as e:
+        raise RuntimeError(f"Anthropic API rejected the request: {e.message}") from e
+    except anthropic.APIConnectionError as e:
+        raise RuntimeError("Network error calling the Anthropic API.") from e
+    except anthropic.APIStatusError as e:
+        raise RuntimeError(f"Anthropic API error ({e.status_code}): {e.message}") from e
 
     return messages, final_text, tool_calls
 

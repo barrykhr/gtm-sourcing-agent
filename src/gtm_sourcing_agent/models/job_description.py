@@ -31,6 +31,9 @@ class JobDescription(BaseModel):
 
     role_objective: str
     core_responsibilities: list[str] = Field(default_factory=list)
+    compensation: str = Field(
+        default="", description="salary/OTE/band as stated in the JD, free text — empty if the JD never mentions it, never estimated"
+    )
 
     must_have_requirements: list[str] = Field(default_factory=list)
     nice_to_have_requirements: list[str] = Field(default_factory=list)

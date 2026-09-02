@@ -214,6 +214,58 @@ def test_upload_candidate_rejects_unsupported_file(isolated_db):
     assert "unsupported file type" in resp.json()["detail"]
 
 
+def test_upload_jd_extracts_text_without_running_analysis(isolated_db):
+    # Extraction only — this route never calls the LLM or writes
+    # job_description; the recruiter reviews/edits the returned text in
+    # the same box the existing paste flow already feeds into "Analyse JD".
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+
+    resp = client.post(
+        "/jobs/ae-role/intake/upload",
+        files={"file": ("jd.txt", b"Enterprise AE, own net-new logos.", "text/plain")},
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["text"] == "Enterprise AE, own net-new logos."
+    assert "job_description" not in client.get("/jobs/ae-role").json()["state"]
+
+
+def test_upload_jd_rejects_unsupported_file(isolated_db):
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    resp = client.post(
+        "/jobs/ae-role/intake/upload",
+        files={"file": ("jd.rtf", b"whatever", "application/rtf")},
+    )
+    assert resp.status_code == 400
+    assert "unsupported file type" in resp.json()["detail"]
+
+
+def test_update_job_description_corrects_extracted_fields(isolated_db, fake_generate):
+    from gtm_sourcing_agent.models import JobDescription
+
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    fake_generate.queue.append(
+        JobDescription(raw_jd_text="x", company="Acme", role_title="AE", function="Sales",
+                       seniority="Mid", geography="US", role_objective="Own net-new logos.")
+    )
+    resp = client.post("/jobs/ae-role/intake", json={"jd_text": "Enterprise AE."})
+    _wait_for_task("ae-role", resp.json()["task_id"])
+
+    resp = client.patch(
+        "/jobs/ae-role/job-description", json={"seniority": "Senior", "compensation": "$150k OTE"}
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["seniority"] == "Senior"
+    assert resp.json()["compensation"] == "$150k OTE"
+    assert resp.json()["role_title"] == "AE"
+
+
+def test_update_job_description_requires_jd_first(isolated_db):
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    resp = client.patch("/jobs/ae-role/job-description", json={"seniority": "Senior"})
+    assert resp.status_code == 400
+
+
 def test_prioritize_screen_outreach_are_async_tasks(isolated_db, fake_generate):
     from gtm_sourcing_agent import db_storage
     from gtm_sourcing_agent.models import Candidate, CandidatePrioritization, OutreachSequence, ScreeningQuestionSet

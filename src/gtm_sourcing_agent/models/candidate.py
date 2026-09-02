@@ -26,9 +26,14 @@ class EvidencedFact(BaseModel):
 class Candidate(BaseModel):
     candidate_id: str = Field(description="stable id, e.g. slugified name + role_id")
     name: str
+    email: str = Field(default="", description="from the resume/source text; empty if never stated — never invented")
+    phone: str = Field(default="", description="from the resume/source text; empty if never stated — never invented")
     current_company: str = ""
     current_title: str = ""
     location: str = ""
+    total_experience: str = Field(
+        default="", description="e.g. '7 years', '4.5 yrs' — as stated or clearly computable from the source's own dates; empty if not determinable, never guessed"
+    )
     current_ctc: str = Field(default="", description="as stated by the candidate/source — currency and period vary, keep free text")
     expected_ctc: str = Field(default="", description="as stated by the candidate/source; NOT STATED if never mentioned")
     notice_period: str = Field(default="", description="e.g. 'Immediate', '30 days', '3 months'; NOT STATED if never mentioned")

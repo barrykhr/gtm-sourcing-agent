@@ -288,6 +288,15 @@ class IcpCriteriaRequest(BaseModel):
     nice_to_have: list[str] | None = None
 
 
+class JobDescriptionUpdateRequest(BaseModel):
+    role_title: str | None = None
+    seniority: str | None = None
+    geography: str | None = None
+    compensation: str | None = None
+    must_have_requirements: list[str] | None = None
+    nice_to_have_requirements: list[str] | None = None
+
+
 class WebhookConfigRequest(BaseModel):
     webhook_url: str = ""
 
@@ -641,6 +650,27 @@ def intake(role_id: str, body: IntakeRequest, request: Request) -> dict[str, Any
     return task_queue.enqueue(role_id, "intake", {"jd_text": body.jd_text})
 
 
+@app.post("/jobs/{role_id}/intake/upload")
+async def upload_jd(role_id: str, request: Request, file: UploadFile = File(...)) -> dict[str, str]:
+    # Extraction only (PDF/DOCX/TXT -> text), same helper the candidate
+    # upload route uses — deliberately not a task: no LLM call happens
+    # here, just text extraction, so the recruiter can review/edit the
+    # extracted text in the same box the existing paste flow already
+    # uses before clicking "Analyse JD" (unchanged, same commit path as
+    # pasting always had — this route never writes job_description).
+    if not db_storage.job_exists(role_id):
+        raise HTTPException(status_code=404, detail=f"job '{role_id}' not found")
+    content = await file.read()
+    try:
+        text = resume_extraction.extract_text(file.filename or "", content)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from None
+    if not text.strip():
+        raise HTTPException(status_code=400, detail="couldn't extract any text from that file")
+    _log(request, role_id, "uploaded JD file", detail=file.filename or "")
+    return {"text": text}
+
+
 @app.post("/jobs/{role_id}/calibrate", status_code=202)
 def calibrate(role_id: str, request: Request) -> dict[str, Any]:
     _log(request, role_id, "requested calibration")
@@ -681,6 +711,18 @@ def update_icp_criteria(role_id: str, body: IcpCriteriaRequest, request: Request
         must_have=body.must_have, nice_to_have=body.nice_to_have, storage_backend=db_storage,
     )
     _log(request, role_id, "updated hiring criteria")
+    return result.model_dump()
+
+
+@app.patch("/jobs/{role_id}/job-description")
+def update_job_description(role_id: str, body: JobDescriptionUpdateRequest, request: Request) -> dict[str, Any]:
+    # The recruiter's own correction to the "here's what we understood"
+    # JD review — same deterministic-edit category as update_icp_criteria
+    # above, not an AI-suggested change.
+    result = _run_stage(
+        intake_stage.update_fields, role_id, storage_backend=db_storage, **body.model_dump(exclude_unset=True)
+    )
+    _log(request, role_id, "corrected JD extraction")
     return result.model_dump()
 
 

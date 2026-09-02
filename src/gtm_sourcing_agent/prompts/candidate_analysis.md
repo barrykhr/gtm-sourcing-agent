@@ -40,4 +40,15 @@ period, capture them verbatim in `current_ctc`, `expected_ctc`, and
 source, don't normalize or guess a currency). Leave a field empty if the
 source material never mentions it — do not estimate or invent a number.
 
+This is very often a resume, where contact information matters as much
+as evidence of fit. Extract into `email` and `phone` exactly as written
+in the source (don't reformat a phone number or guess a country code).
+For `total_experience`, use what the source states directly, or what is
+unambiguously computable from the source's own stated employment dates
+(e.g. two roles with start/end years given) — never estimate from title
+or seniority alone. Leave `email`, `phone`, and `total_experience` empty
+if the source doesn't support them — the product shows "Not available"
+for an empty field, which is correct and expected; never fill one in to
+avoid an empty result.
+
 Output must validate against the Candidate schema.

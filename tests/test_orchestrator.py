@@ -8,6 +8,8 @@ decision is correct without claiming anything about decision quality."""
 
 import json
 
+import anthropic
+import httpx
 import pytest
 
 from gtm_sourcing_agent import db, db_storage, orchestrator
@@ -176,3 +178,37 @@ def test_run_chat_turn_ignores_error_proposals(isolated_db, monkeypatch):
     monkeypatch.setattr(orchestrator, "_run_tool_loop", fake_loop)
     result = orchestrator.run_chat_turn("job-a", "remove NotThere", [])
     assert result["pending_proposal"] is None
+
+
+# ── _run_tool_loop: Anthropic SDK errors must map to friendly RuntimeError,
+# not propagate raw (they aren't ValueError/RuntimeError, so api.py's
+# _run_stage wouldn't catch them — this was a real bug: the copilot's own
+# model call had no error handling, unlike every other stage's
+# llm_client.generate(), so any Anthropic API failure surfaced as an
+# opaque 500 instead of a clear message). ──────────────────────────────
+
+
+def test_run_tool_loop_maps_authentication_error_to_runtime_error(monkeypatch):
+    request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+
+    class _ExplodingRunner:
+        def __iter__(self):
+            return self
+
+        def __next__(self):
+            raise anthropic.APIConnectionError(request=request)
+
+    class _FakeMessages:
+        def tool_runner(self, **kwargs):
+            return _ExplodingRunner()
+
+    class _FakeBeta:
+        messages = _FakeMessages()
+
+    class _FakeClient:
+        beta = _FakeBeta()
+
+    monkeypatch.setattr(orchestrator, "_get_client", lambda: _FakeClient())
+
+    with pytest.raises(RuntimeError, match="Network error calling the Anthropic API"):
+        orchestrator._run_tool_loop("claude-sonnet-5", "system", [], [])
