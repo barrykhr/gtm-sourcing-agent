@@ -130,6 +130,7 @@ export type Candidate = {
   note: string;
   phone: string;
   email: string;
+  client_visible: boolean;
   conversation_summary: string;
   conversation_summary_updated_at: string | null;
   conversation_summary_entry_count: number;
@@ -268,6 +269,20 @@ export const generateShareLink = (roleId: string) => post<JobSummary>(`/jobs/${r
 export const revokeShareLink = (roleId: string) =>
   request<JobSummary>(`/jobs/${roleId}/share-link`, { method: "DELETE" });
 
+export type SharedCandidate = {
+  name: string;
+  current_title: string;
+  current_company: string;
+  location: string;
+  relevant_experience_summary: string;
+  achievements: EvidencedFact[];
+  evidence_of_fit: EvidencedFact[];
+  tier: "A" | "B" | "C" | "D" | null;
+  fit_rating: FitRating | null;
+  why_they_fit: string[] | null;
+  current_stage: string;
+};
+
 export type PublicRoleSummary = {
   role_id: string;
   title: string;
@@ -276,9 +291,18 @@ export type PublicRoleSummary = {
   updated_at: string;
   total_candidates: number;
   counts_by_stage: Record<string, number>;
+  shared_candidates: SharedCandidate[];
 };
 
 export const getPublicRoleSummary = (shareToken: string) => get<PublicRoleSummary>(`/public/roles/${shareToken}`);
+
+// Client sharing (recruiter/client/admin permission model) — a
+// recruiter's own explicit, per-candidate opt-in to expose a safe
+// subset of that evaluation on the role's public share link.
+export const setCandidateShare = (roleId: string, candidateId: string, visible: boolean) =>
+  patch<{ candidate_id: string; client_visible: boolean }>(
+    `/jobs/${roleId}/candidates/${candidateId}/share`, { visible }
+  );
 
 // Global search (Phase 10) — jobs by title/role_id, candidates by name.
 export type SearchResult = {

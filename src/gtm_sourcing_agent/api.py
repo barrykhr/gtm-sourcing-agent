@@ -330,6 +330,10 @@ class CandidateContactRequest(BaseModel):
     email: str | None = None
 
 
+class CandidateShareRequest(BaseModel):
+    visible: bool
+
+
 class CommunicationLogRequest(BaseModel):
     channel: Literal["email", "whatsapp", "call", "note"]
     direction: Literal["outbound", "inbound"] = "outbound"
@@ -921,6 +925,22 @@ def screen(role_id: str, candidate_id: str, request: Request) -> dict[str, Any]:
 def outreach(role_id: str, candidate_id: str, request: Request) -> dict[str, Any]:
     _log(request, role_id, "requested outreach draft", candidate_id=candidate_id)
     return task_queue.enqueue(role_id, "outreach", {"candidate_id": candidate_id})
+
+
+@app.patch("/jobs/{role_id}/candidates/{candidate_id}/share")
+def set_candidate_share(role_id: str, candidate_id: str, body: CandidateShareRequest, request: Request) -> dict[str, Any]:
+    # Client sharing (recruiter/client/admin permission model): a
+    # recruiter's own explicit, per-candidate opt-in — never automatic,
+    # never something a stage or the model sets. See
+    # db_storage.set_candidate_client_visible / get_public_role_summary
+    # for exactly what a client sees once shared.
+    result = _run_stage(db_storage.set_candidate_client_visible, role_id, candidate_id, body.visible)
+    _log(
+        request, role_id,
+        "shared candidate with client" if body.visible else "unshared candidate from client",
+        candidate_id=candidate_id,
+    )
+    return result
 
 
 @app.post("/jobs/{role_id}/candidates/{candidate_id}/outreach/mark-sent")

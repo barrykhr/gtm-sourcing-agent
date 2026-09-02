@@ -1108,6 +1108,55 @@ def test_share_link_lifecycle_and_public_route(isolated_db):
     assert after_revoke.status_code == 404
 
 
+def test_client_sharing_exposes_only_the_safe_fields_of_shared_candidates(isolated_db, fake_generate):
+    from gtm_sourcing_agent import db_storage
+    from gtm_sourcing_agent.models import Candidate
+
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    db_storage.merge_section("ae-role", "icp", {"must_have": ["SaaS"]})
+    fake_generate.queue.append(Candidate(
+        candidate_id="cand-1", name="Jane Doe", current_title="AE", current_company="Acme",
+        current_ctc="$200k", email="jane@example.com", phone="+1 555-0100",
+        concerns=["Limited enterprise exposure"],
+    ))
+    resp = client.post("/jobs/ae-role/candidates", json={"source_text": "resume", "role_family": "sales"})
+    _wait_for_task("ae-role", resp.json()["task_id"])
+    # A second, never-shared candidate to prove it stays excluded.
+    fake_generate.queue.append(Candidate(candidate_id="cand-2", name="Not Shared"))
+    resp2 = client.post("/jobs/ae-role/candidates", json={"source_text": "resume2", "role_family": "sales"})
+    _wait_for_task("ae-role", resp2.json()["task_id"])
+
+    token = client.post("/jobs/ae-role/share-link").json()["share_token"]
+
+    share = client.patch("/jobs/ae-role/candidates/cand-1/share", json={"visible": True})
+    assert share.status_code == 200, share.text
+    assert share.json() == {"candidate_id": "cand-1", "client_visible": True}
+
+    from fastapi.testclient import TestClient as _TestClient
+    from gtm_sourcing_agent.api import app as _app
+    anon = _TestClient(_app)
+    public = anon.get(f"/public/roles/{token}").json()
+
+    shared = public["shared_candidates"]
+    assert len(shared) == 1
+    assert shared[0]["name"] == "Jane Doe"
+    assert shared[0]["current_title"] == "AE"
+    # Never on a client-facing link, shared or not.
+    for forbidden in ("current_ctc", "email", "phone", "concerns", "note", "recruiter_decision"):
+        assert forbidden not in shared[0]
+
+    # Unsharing removes it again.
+    client.patch("/jobs/ae-role/candidates/cand-1/share", json={"visible": False})
+    public_after = anon.get(f"/public/roles/{token}").json()
+    assert public_after["shared_candidates"] == []
+
+
+def test_sharing_an_unknown_candidate_404s(isolated_db):
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    resp = client.patch("/jobs/ae-role/candidates/nope/share", json={"visible": True})
+    assert resp.status_code == 400
+
+
 def test_bulk_import_candidates_from_csv(isolated_db, fake_generate):
     from gtm_sourcing_agent import db_storage
     from gtm_sourcing_agent.models import Candidate

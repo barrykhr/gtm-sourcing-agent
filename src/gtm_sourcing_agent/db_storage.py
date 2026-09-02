@@ -57,6 +57,7 @@ def load_role(role_id: str) -> dict[str, Any]:
         rows = session.scalars(select(JobSection).where(JobSection.role_id == role_id)).all()
         for row in rows:
             state[row.section_key] = row.data
+        client_shares = state.get("client_shares") or {}
         evaluations = session.scalars(
             select(CandidateEvaluation).where(CandidateEvaluation.role_id == role_id)
         ).all()
@@ -73,6 +74,7 @@ def load_role(role_id: str) -> dict[str, Any]:
                     ev.conversation_summary_updated_at.isoformat() if ev.conversation_summary_updated_at else None
                 ),
                 "conversation_summary_entry_count": ev.conversation_summary_entry_count,
+                "client_visible": bool(client_shares.get(ev.candidate_evaluation_id)),
             }
             if ev.prioritization is not None:
                 state["prioritizations"][ev.candidate_evaluation_id] = ev.prioritization
@@ -643,10 +645,47 @@ def revoke_share_link(role_id: str) -> dict[str, Any]:
         return _job_dict(job)
 
 
+def set_candidate_client_visible(role_id: str, candidate_id: str, visible: bool) -> dict[str, bool]:
+    """Client sharing (recruiter/client/admin permission model): the
+    recruiter's own explicit, per-candidate decision to expose a safe
+    subset of this evaluation on the public share-link page. Stored as a
+    JobSection (not a new CandidateEvaluation column) deliberately —
+    this repo has no migration tool, and create_all() only creates
+    missing *tables*, never adds a column to one that already exists in
+    an already-provisioned production database. A JSON section under the
+    existing job_sections table carries new fields with zero schema risk.
+    Defaults to private; sharing is opt-in, never automatic."""
+    if candidate_id not in load_role(role_id).get("candidates", {}):
+        raise ValueError(f"candidate '{candidate_id}' not found for role '{role_id}'")
+    shares = dict(load_role(role_id).get("client_shares") or {})
+    if visible:
+        shares[candidate_id] = True
+    else:
+        shares.pop(candidate_id, None)
+    merge_section(role_id, "client_shares", shares)
+    return {"candidate_id": candidate_id, "client_visible": visible}
+
+
+# Fields considered safe for an unauthenticated client-facing link — see
+# get_public_role_summary's docstring for what's deliberately excluded.
+_CLIENT_SAFE_CANDIDATE_FIELDS = (
+    "name", "current_title", "current_company", "location",
+    "relevant_experience_summary", "achievements", "evidence_of_fit",
+)
+
+
 def get_public_role_summary(share_token: str) -> dict[str, Any] | None:
     """Read-only client-facing view (Batch B) behind a share token —
-    counts and stage names only, never individual candidate detail (CTC,
-    notes, evidence) or anything from the recruiter's own workspace."""
+    aggregate counts/stage names for every candidate, plus a safe subset
+    of detail (name, title, company, evidence-labeled achievements/fit —
+    the "candidate profile/summary" the recruiter has explicitly opted a
+    candidate into sharing via set_candidate_client_visible) for only
+    the candidates the recruiter has explicitly marked shareable.
+    Never included, on any candidate, shared or not: CTC/compensation,
+    private recruiter notes, weaknesses/concerns (internal assessment),
+    recruiter_decision, phone/email (PII on an unauthenticated public
+    link), placement/revenue figures, or anything about other clients,
+    other roles, or the recruiting team itself."""
     with db.get_session() as session:
         job = session.scalars(select(Job).where(Job.share_token == share_token)).first()
         if job is None:
@@ -659,16 +698,34 @@ def get_public_role_summary(share_token: str) -> dict[str, Any] | None:
             ).all()
         )
 
-    funnel = load_role(role_id).get("funnel", {})
+    state = load_role(role_id)
+    funnel = state.get("funnel", {})
     counts_by_stage: dict[str, int] = {}
     for record in funnel.values():
         stage = record.get("current_stage", "IDENTIFIED")
         counts_by_stage[stage] = counts_by_stage.get(stage, 0) + 1
 
+    candidates = state.get("candidates", {})
+    prioritizations = state.get("prioritizations", {})
+    shares = state.get("client_shares") or {}
+    shared_candidates = []
+    for candidate_id, is_shared in shares.items():
+        if not is_shared or candidate_id not in candidates:
+            continue
+        full = candidates[candidate_id]
+        safe = {k: full.get(k) for k in _CLIENT_SAFE_CANDIDATE_FIELDS}
+        p = prioritizations.get(candidate_id) or {}
+        safe["tier"] = p.get("tier")
+        safe["fit_rating"] = p.get("fit_rating")
+        safe["why_they_fit"] = p.get("why_they_fit")
+        safe["current_stage"] = (funnel.get(candidate_id) or {}).get("current_stage", "IDENTIFIED")
+        shared_candidates.append(safe)
+
     return {
         "role_id": role_id, "title": title, "client_name": client_name,
         "lifecycle_status": lifecycle_status, "updated_at": updated_at,
         "total_candidates": total_candidates, "counts_by_stage": counts_by_stage,
+        "shared_candidates": shared_candidates,
     }
 
 

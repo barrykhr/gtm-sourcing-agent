@@ -43,6 +43,7 @@ import {
   generateShareLink,
   revokeShareLink,
   setCandidateNote,
+  setCandidateShare,
   setJobClient,
   setJobLifecycle,
   setJobOwner,
@@ -1613,6 +1614,31 @@ function CandidatesTab({
                               <p className="mt-2 text-xs text-zinc-400">
                                 Pulled automatically from the uploaded resume — correct it in Contact below if needed.
                               </p>
+                            </Card>
+
+                            <Card title="Client visibility">
+                              <p className="text-xs text-zinc-500">
+                                {c.client_visible
+                                  ? "Shared — name, role/company, and evidence-labeled fit appear on this role's client link."
+                                  : "Private — this candidate does not appear on the client link."}
+                              </p>
+                              <button
+                                onClick={() =>
+                                  run(`share-${c.candidate_id}`, () => setCandidateShare(roleId, c.candidate_id, !c.client_visible))
+                                }
+                                disabled={busy === `share-${c.candidate_id}`}
+                                className={`mt-2 rounded-md border px-2.5 py-1 text-xs font-medium disabled:opacity-50 ${
+                                  c.client_visible
+                                    ? "border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-400"
+                                    : "border-zinc-300 hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                                }`}
+                              >
+                                {busy === `share-${c.candidate_id}`
+                                  ? "Saving…"
+                                  : c.client_visible
+                                    ? "Shared with client — unshare"
+                                    : "Share with client"}
+                              </button>
                             </Card>
 
                             <Card title="Compensation & availability">
