@@ -15,7 +15,7 @@ import re
 import unicodedata
 from typing import Any, Literal
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -78,6 +78,23 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return JSONResponse({"detail": "not authenticated"}, status_code=401)
         request.state.user = user
         return await call_next(request)
+
+
+def require_role(*allowed_roles: str):
+    """FastAPI dependency gating a route to specific roles — server-side
+    enforcement (Production-Readiness Phase §4), never a frontend nav
+    check. AuthMiddleware has already guaranteed request.state.user
+    exists (or the request never reaches here) by the time this runs.
+    Raises 403, distinct from AuthMiddleware's 401 — the caller IS
+    authenticated, just not authorized for this specific route."""
+
+    def _check(request: Request) -> dict[str, Any]:
+        user = request.state.user
+        if user["role"] not in allowed_roles:
+            raise HTTPException(status_code=403, detail=f"requires one of role(s): {', '.join(allowed_roles)}")
+        return user
+
+    return _check
 
 
 def _set_session_cookie(response: Response, token: str) -> None:
@@ -165,6 +182,22 @@ def logout(request: Request, response: Response) -> dict[str, str]:
 @app.get("/auth/me")
 def me(request: Request) -> dict[str, Any]:
     return request.state.user
+
+
+class UserRoleRequest(BaseModel):
+    role: str
+
+
+@app.get("/users")
+def list_users(_admin: dict[str, Any] = Depends(require_role("admin"))) -> list[dict[str, Any]]:
+    return auth.list_users()
+
+
+@app.patch("/users/{user_id}/role")
+def set_user_role(user_id: str, body: UserRoleRequest, _admin: dict[str, Any] = Depends(require_role("admin"))) -> dict[str, Any]:
+    # Not logged via ActivityLog: that table is job-scoped (role_id is a
+    # non-null FK to jobs.role_id) — a role change isn't about any job.
+    return _run_stage(auth.set_user_role, user_id, body.role)
 
 
 def _run_stage(fn, *args, **kwargs) -> Any:

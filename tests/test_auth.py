@@ -166,3 +166,68 @@ def test_google_created_account_cannot_log_in_with_a_password(isolated_db, monke
     client.cookies.clear()
     resp = client.post("/auth/login", json={"email": "recruiter@example.com", "password": "guessed-password"})
     assert resp.status_code == 401
+
+
+# ── roles (production-readiness phase) ──────────────────────────────────
+
+
+def test_first_account_on_a_fresh_deployment_becomes_admin(isolated_db):
+    resp = client.post("/auth/signup", json={"email": "first@example.com", "password": "hunter22"})
+    assert resp.json()["role"] == "admin"
+
+
+def test_second_account_defaults_to_recruiter(isolated_db):
+    client.post("/auth/signup", json={"email": "first@example.com", "password": "hunter22"})
+    client.post("/auth/logout")
+    resp = client.post("/auth/signup", json={"email": "second@example.com", "password": "hunter22"})
+    assert resp.json()["role"] == "recruiter"
+
+
+def test_google_first_account_also_becomes_admin(isolated_db, monkeypatch):
+    monkeypatch.setattr(auth, "GOOGLE_CLIENT_ID", "test-client-id")
+    monkeypatch.setattr(auth, "_verify_google_id_token", lambda credential: "founder@example.com")
+    resp = client.post("/auth/google", json={"credential": "signed-token"})
+    assert resp.json()["role"] == "admin"
+
+
+def test_login_response_carries_role(isolated_db):
+    client.post("/auth/signup", json={"email": "r@example.com", "password": "hunter22"})
+    client.post("/auth/logout")
+    resp = client.post("/auth/login", json={"email": "r@example.com", "password": "hunter22"})
+    assert resp.json()["role"] == "admin"
+
+
+def test_recruiter_cannot_list_users_or_change_roles(isolated_db):
+    client.post("/auth/signup", json={"email": "admin@example.com", "password": "hunter22"})  # bootstraps admin
+    client.post("/auth/logout")
+    recruiter = client.post("/auth/signup", json={"email": "recruiter@example.com", "password": "hunter22"})
+    recruiter_id = recruiter.json()["id"]
+
+    assert client.get("/users").status_code == 403
+    assert client.patch(f"/users/{recruiter_id}/role", json={"role": "admin"}).status_code == 403
+
+
+def test_admin_can_list_users_and_promote_a_recruiter(isolated_db):
+    admin = client.post("/auth/signup", json={"email": "admin@example.com", "password": "hunter22"})
+    admin_id = admin.json()["id"]
+    client.post("/auth/logout")
+    recruiter = client.post("/auth/signup", json={"email": "recruiter@example.com", "password": "hunter22"})
+    recruiter_id = recruiter.json()["id"]
+    client.post("/auth/logout")
+    client.post("/auth/login", json={"email": "admin@example.com", "password": "hunter22"})
+
+    listed = client.get("/users").json()
+    assert {u["id"]: u["role"] for u in listed} == {admin_id: "admin", recruiter_id: "recruiter"}
+
+    promoted = client.patch(f"/users/{recruiter_id}/role", json={"role": "admin"})
+    assert promoted.status_code == 200, promoted.text
+    assert promoted.json()["role"] == "admin"
+    assert {u["role"] for u in client.get("/users").json()} == {"admin"}
+
+
+def test_client_and_interviewer_are_not_assignable_yet(isolated_db):
+    admin = client.post("/auth/signup", json={"email": "admin@example.com", "password": "hunter22"})
+    admin_id = admin.json()["id"]
+    resp = client.patch(f"/users/{admin_id}/role", json={"role": "client"})
+    assert resp.status_code == 400
+    assert "not an assignable role" in resp.json()["detail"]

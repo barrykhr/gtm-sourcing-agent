@@ -53,7 +53,12 @@ export type Json = Record<string, any>;
 // api.py's auth section and auth.py's module docstring for why this
 // isn't OAuth/SSO or per-user data isolation.
 
-export type AuthUser = { id: string; email: string };
+// Role/permission foundation (production-readiness phase). Only
+// "admin"/"recruiter" are assignable today; "client"/"interviewer" are
+// reserved. This is display/UX convenience only — every actual
+// enforcement happens server-side (api.py's require_role), never here.
+export type UserRole = "admin" | "recruiter" | "client" | "interviewer";
+export type AuthUser = { id: string; email: string; role: UserRole };
 export type AuthStatus = { signup_requires_code: boolean; google_client_id: string | null };
 
 export const getAuthStatus = () => get<AuthStatus>("/auth/status");
@@ -62,6 +67,11 @@ export const signup = (email: string, password: string, signupCode?: string) =>
   post<AuthUser>("/auth/signup", { email, password, signup_code: signupCode ?? null });
 export const login = (email: string, password: string) => post<AuthUser>("/auth/login", { email, password });
 export const googleLogin = (credential: string) => post<AuthUser>("/auth/google", { credential });
+
+export type TeamMember = { id: string; email: string; role: UserRole; created_at: string };
+export const listUsers = () => get<TeamMember[]>("/users");
+export const setUserRole = (userId: string, role: "admin" | "recruiter") =>
+  patch<TeamMember>(`/users/${userId}/role`, { role });
 export const logout = () => post<{ status: string }>("/auth/logout");
 
 // ── types (only the fields the UI actually reads) ─────────────────────────

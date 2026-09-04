@@ -28,6 +28,15 @@ SESSION_COOKIE_NAME = "gtm_session"
 SESSION_TTL = timedelta(days=14)
 _PBKDF2_ITERATIONS = 600_000
 
+# Role/permission foundation (production-readiness phase). Only "admin"
+# and "recruiter" are actually assignable/enforced right now — "client"
+# and "interviewer" are reserved so a future account type doesn't need a
+# schema/enum change, per the explicit brief for this phase. Enforcement
+# lives server-side (require_role in api.py), never in frontend nav —
+# hiding a button is not a permission boundary.
+ROLES = ("admin", "recruiter", "client", "interviewer")
+ASSIGNABLE_ROLES = ("admin", "recruiter")
+
 # Optional invite-code gate on signup — unset (the default) means anyone
 # who can reach this server can create an account. Set it once a shared
 # workspace needs to control who joins.
@@ -46,7 +55,11 @@ def create_user(email: str, password: str, signup_code: str | None = None) -> di
     """Any number of accounts, all sharing the same workspace — see
     module docstring. Raises ValueError (mapped to 400 by the API layer)
     on a duplicate email, a too-weak password, or a missing/wrong signup
-    code when one is configured."""
+    code when one is configured. The very first account on a fresh
+    deployment becomes "admin" automatically (there is otherwise no way
+    to grant that role — the change-role endpoint itself requires an
+    existing admin); every account after that defaults to "recruiter"
+    and an existing admin can promote them later."""
     if SIGNUP_CODE is not None and signup_code != SIGNUP_CODE:
         raise ValueError("invalid signup code")
     if len(password) < 8:
@@ -54,14 +67,15 @@ def create_user(email: str, password: str, signup_code: str | None = None) -> di
     with db.get_session() as db_session:
         if db_session.scalars(select(User).where(User.email == email)).first() is not None:
             raise ValueError(f"an account already exists for '{email}' — log in instead")
+        is_first_account = db_session.scalars(select(User.id).limit(1)).first() is None
         salt = secrets.token_hex(16)
         user = User(
-            id=f"user-{secrets.token_hex(8)}", email=email,
+            id=f"user-{secrets.token_hex(8)}", email=email, role="admin" if is_first_account else "recruiter",
             password_hash=_hash_password(password, salt), password_salt=salt,
         )
         db_session.add(user)
         db_session.commit()
-        return {"id": user.id, "email": user.email}
+        return {"id": user.id, "email": user.email, "role": user.role}
 
 
 def verify_credentials(email: str, password: str) -> dict[str, Any] | None:
@@ -71,7 +85,30 @@ def verify_credentials(email: str, password: str) -> dict[str, Any] | None:
             return None
         if _hash_password(password, user.password_salt) != user.password_hash:
             return None
-        return {"id": user.id, "email": user.email}
+        return {"id": user.id, "email": user.email, "role": user.role}
+
+
+def set_user_role(user_id: str, role: str) -> dict[str, Any]:
+    """The one admin-only mutation this phase adds — see
+    api.py's PATCH /users/{user_id}/role, gated by require_role("admin").
+    Only "admin"/"recruiter" are assignable; "client"/"interviewer" are
+    reserved for a later phase (see ASSIGNABLE_ROLES)."""
+    if role not in ASSIGNABLE_ROLES:
+        raise ValueError(f"'{role}' is not an assignable role — must be one of {ASSIGNABLE_ROLES}")
+    with db.get_session() as db_session:
+        user = db_session.get(User, user_id)
+        if user is None:
+            raise ValueError(f"user '{user_id}' not found")
+        user.role = role
+        db_session.commit()
+        return {"id": user.id, "email": user.email, "role": user.role}
+
+
+def list_users() -> list[dict[str, Any]]:
+    """Admin-only account roster — see api.py's GET /users."""
+    with db.get_session() as db_session:
+        users = db_session.scalars(select(User).order_by(User.created_at)).all()
+        return [{"id": u.id, "email": u.email, "role": u.role, "created_at": u.created_at} for u in users]
 
 
 def create_session(user_id: str) -> str:
@@ -95,7 +132,7 @@ def get_user_from_session(token: str) -> dict[str, Any] | None:
             db_session.commit()
             return None
         user = db_session.get(User, session.user_id)
-        return {"id": user.id, "email": user.email} if user else None
+        return {"id": user.id, "email": user.email, "role": user.role} if user else None
 
 
 def delete_session(token: str) -> None:
@@ -151,11 +188,12 @@ def google_login(credential: str) -> dict[str, Any]:
     with db.get_session() as db_session:
         user = db_session.scalars(select(User).where(User.email == email)).first()
         if user is None:
+            is_first_account = db_session.scalars(select(User.id).limit(1)).first() is None
             salt = secrets.token_hex(16)
             user = User(
-                id=f"user-{secrets.token_hex(8)}", email=email,
+                id=f"user-{secrets.token_hex(8)}", email=email, role="admin" if is_first_account else "recruiter",
                 password_hash=_hash_password(secrets.token_urlsafe(32), salt), password_salt=salt,
             )
             db_session.add(user)
             db_session.commit()
-        return {"id": user.id, "email": user.email}
+        return {"id": user.id, "email": user.email, "role": user.role}

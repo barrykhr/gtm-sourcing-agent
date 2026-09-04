@@ -9,13 +9,17 @@ import {
   RecruiterRevenue,
   RecruiterUsage,
   RecruiterVelocity,
+  TeamMember,
   TeamUsage,
   VelocityReport,
   getIntegrationsStatus,
   getRevenueByRecruiter,
   getTeamUsage,
   getTeamVelocity,
+  listUsers,
+  setUserRole,
 } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 
 function rate(numerator: number, denominator: number): string {
@@ -155,6 +159,82 @@ function StageDaysCell({ avgDaysInStage }: { avgDaysInStage: Record<string, numb
           {stage.replace(/_/g, " ")}: {days}d
         </span>
       ))}
+    </div>
+  );
+}
+
+// Role management (production-readiness phase) — admin-only, hidden
+// here for a non-admin purely as UX (the server enforces this for real
+// via require_role("admin"); this component never assumes the frontend
+// check is the actual boundary). A recruiter simply doesn't see this
+// section; they'd still get a 403 if they somehow called the API.
+function RoleManagementPanel() {
+  const { user } = useAuth();
+  const [members, setMembers] = useState<TeamMember[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (user?.role !== "admin") return;
+    listUsers()
+      .then(setMembers)
+      .catch((e) => setError(e instanceof ApiError ? e.message : "Could not load accounts."));
+  }, [user?.role]);
+
+  if (user?.role !== "admin") return null;
+
+  async function changeRole(memberId: string, role: "admin" | "recruiter") {
+    setBusyId(memberId);
+    setError(null);
+    try {
+      const updated = await setUserRole(memberId, role);
+      setMembers((prev) => prev?.map((m) => (m.id === memberId ? updated : m)) ?? null);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not update role.");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <div>
+      <h2 className="font-display text-xl tracking-tight">Accounts &amp; roles</h2>
+      <p className="mt-1 text-sm text-muted-foreground">Admin-only. Every account still sees the same jobs and candidates — role only controls who can manage other accounts.</p>
+      {error && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{error}</p>}
+      {members === null ? (
+        <p className="mt-3 text-sm text-zinc-500">Loading…</p>
+      ) : (
+        <div className="mt-3 overflow-x-auto rounded-lg border border-zinc-200 dark:border-zinc-800">
+          <table className="w-full min-w-[420px] text-left text-sm">
+            <thead className="border-b border-zinc-200 text-xs uppercase tracking-wide text-zinc-500 dark:border-zinc-800">
+              <tr>
+                <th className="px-4 py-2.5 font-medium">Email</th>
+                <th className="px-4 py-2.5 font-medium">Role</th>
+                <th className="px-4 py-2.5 font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {members.map((m) => (
+                <tr key={m.id} className="border-b border-zinc-100 last:border-0 dark:border-zinc-900">
+                  <td className="px-4 py-2.5 font-medium">{m.email}{m.id === user?.id && <span className="ml-1.5 text-xs font-normal text-zinc-400">(you)</span>}</td>
+                  <td className="px-4 py-2.5 capitalize">{m.role}</td>
+                  <td className="px-4 py-2.5">
+                    {m.id !== user?.id && (
+                      <button
+                        onClick={() => changeRole(m.id, m.role === "admin" ? "recruiter" : "admin")}
+                        disabled={busyId === m.id}
+                        className="rounded-md border border-zinc-300 px-2.5 py-1 text-xs font-medium hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                      >
+                        {busyId === m.id ? "Saving…" : m.role === "admin" ? "Make recruiter" : "Make admin"}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -478,10 +558,12 @@ export default function TeamUsagePage() {
             </>
           )}
 
+          <RoleManagementPanel />
+
           <IntegrationsPanel />
 
           <p className="text-xs text-zinc-400">
-            Visible to every account — this workspace has no separate admin role, so any recruiter can see this page.
+            The usage/performance data above is visible to every account. Only the Accounts &amp; roles section is admin-only.
           </p>
         </>
       ) : null}

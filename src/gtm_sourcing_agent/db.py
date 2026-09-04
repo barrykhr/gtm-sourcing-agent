@@ -20,8 +20,32 @@ from .models_orm import Base
 
 DATA_DIR = Path(__file__).resolve().parents[2] / "data"
 DB_PATH = DATA_DIR / "gtm_sourcing_agent.db"
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 _engines: dict[str, Engine] = {}
+
+
+def _run_migrations(url: str) -> None:
+    """Bring the schema at `url` up to the latest Alembic revision.
+
+    `Base.metadata.create_all()` (below) only ever creates tables that
+    don't exist yet — it never adds a column to a table that's already
+    there. A deployed database that predates a model change (e.g. the
+    `users.role` column) would silently keep missing it forever unless
+    something actually runs migrations. Doing it here means every path
+    that opens the database — the app on startup, a one-off script, a
+    test — gets a schema that matches models_orm.py, without depending
+    on the hosting platform being configured with a separate release
+    step. migrations/versions/d330f3a84db7 is written to be safe to run
+    against an already-populated legacy database, not just an empty one.
+    """
+    from alembic import command
+    from alembic.config import Config
+
+    cfg = Config(str(REPO_ROOT / "alembic.ini"))
+    cfg.set_main_option("script_location", str(REPO_ROOT / "migrations"))
+    cfg.set_main_option("sqlalchemy.url", url)
+    command.upgrade(cfg, "head")
 
 
 def _database_url() -> str:
@@ -41,8 +65,27 @@ def _database_url() -> str:
 def _get_engine() -> Engine:
     url = _database_url()
     if url not in _engines:
-        connect_args = {"check_same_thread": False} if url.startswith("sqlite:") else {}
-        engine = create_engine(url, connect_args=connect_args)
+        if url.startswith("sqlite:"):
+            connect_args = {"check_same_thread": False}
+            pool_kwargs = {}
+        else:
+            connect_args = {}
+            # Managed Postgres (Render included) closes idle connections
+            # server-side after a timeout; pool_pre_ping detects a dead
+            # connection and transparently reconnects instead of the
+            # request failing. Pool size is deliberately small — this is
+            # a single small-team app, not a high-concurrency service.
+            pool_kwargs = {
+                "pool_pre_ping": True,
+                "pool_size": 5,
+                "max_overflow": 10,
+                "pool_recycle": 1800,
+            }
+        engine = create_engine(url, connect_args=connect_args, **pool_kwargs)
+        _run_migrations(url)
+        # Safety net only: covers a brand-new table that's in
+        # models_orm.py but doesn't have a migration yet. Real schema
+        # changes belong in a migration, not a reliance on this line.
         Base.metadata.create_all(engine)
         _engines[url] = engine
     return _engines[url]

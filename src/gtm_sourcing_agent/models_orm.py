@@ -179,12 +179,19 @@ class User(Base):
     a locally-run, single-recruiter tool with no real domain/hosting, not
     a multi-tenant SaaS, so this is plain session-based email+password
     auth rather than OAuth/SSO. `password_hash` is PBKDF2-HMAC-SHA256
-    (stdlib hashlib, no new dependency) with a per-user random salt."""
+    (stdlib hashlib, no new dependency) with a per-user random salt.
+
+    `role` (production-readiness phase, see auth.py's ROLES) is one of
+    "admin" | "recruiter" | "client" | "interviewer". Only admin/recruiter
+    are actually assignable and enforced today — client/interviewer exist
+    in the type so a future client-facing account doesn't require an enum
+    migration, but nothing yet grants either role any access at all."""
 
     __tablename__ = "users"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
     email: Mapped[str] = mapped_column(String, unique=True)
+    role: Mapped[str] = mapped_column(String, default="recruiter")
     password_hash: Mapped[str] = mapped_column(String)
     password_salt: Mapped[str] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
