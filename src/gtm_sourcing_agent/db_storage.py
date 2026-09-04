@@ -1123,6 +1123,31 @@ def update_task(
         return _task_dict(task)
 
 
+def reset_incomplete_tasks(error: str) -> int:
+    """Mark every task still in a non-terminal state ("pending" or
+    "running") as failed. Returns how many rows were touched.
+
+    task_queue.py's queue is in-memory (see its module docstring); it
+    never survives a process restart. A task that was "pending" or
+    "running" in the database when the previous process died (crash,
+    redeploy) has no worker left that will ever pick it back up — it
+    would otherwise sit there forever looking like a request that never
+    finished. Call this once at startup, before any new task is
+    enqueued, so a recruiter sees a clear failure instead of an action
+    that spins forever.
+    """
+    with db.get_session() as session:
+        tasks = session.scalars(select(Task).where(Task.status.in_(("pending", "running")))).all()
+        now = datetime.now(UTC)
+        for task in tasks:
+            task.status = "failed"
+            task.error = error
+            task.updated_at = now
+            task.finished_at = now
+        session.commit()
+        return len(tasks)
+
+
 # ── activity log (Phase 8) ──────────────────────────────────────────────
 # Written from api.py's route handlers, the only layer with the
 # authenticated user (request.state.user) — never from stages/*.py, which

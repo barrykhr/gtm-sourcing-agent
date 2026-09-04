@@ -39,6 +39,30 @@ _worker_started = False
 _start_lock = threading.Lock()
 
 
+def _recover_orphaned_tasks() -> None:
+    """Runs once per process, from _ensure_worker() below, before the
+    worker thread starts and before this call's own enqueue() creates
+    its task row. This process's in-memory queue starts empty regardless
+    of what the database says — so any task left "pending" or "running"
+    from a previous process (crash, redeploy) is orphaned: nothing will
+    ever finish it. Mark those failed so the recruiter sees an honest
+    "this didn't complete, try again" instead of a spinner that never
+    resolves.
+
+    This assumes exactly one server process/instance, same as the rest
+    of this module (see the module docstring). Running more than one
+    instance would make this actively wrong — a second instance's
+    startup would mark the first instance's genuinely in-flight tasks
+    as failed. Do not scale this app horizontally without replacing the
+    in-memory queue with something that coordinates across processes.
+    """
+    count = db_storage.reset_incomplete_tasks(
+        "Interrupted by a server restart before it finished. Please retry."
+    )
+    if count:
+        logger.warning("task worker: recovered %d orphaned task(s) left by a previous process", count)
+
+
 def register_runner(kind: str, fn: TaskRunner) -> None:
     """Register how to execute a task of the given `kind`. `fn(role_id,
     args)` must return a JSON-serializable result (a stage's own
@@ -50,8 +74,11 @@ def register_runner(kind: str, fn: TaskRunner) -> None:
 def enqueue(role_id: str, kind: str, args: dict[str, Any]) -> dict[str, Any]:
     if kind not in _runners:
         raise ValueError(f"no task runner registered for kind '{kind}'")
-    task = db_storage.create_task(role_id, kind, args)
+    # Recovery must run before this task's own row is created below —
+    # otherwise the very first enqueue() of a process would immediately
+    # mark its own brand-new "pending" task as orphaned.
     _ensure_worker()
+    task = db_storage.create_task(role_id, kind, args)
     _queue.put(task["task_id"])
     return task
 
@@ -61,6 +88,7 @@ def _ensure_worker() -> None:
     with _start_lock:
         if _worker_started:
             return
+        _recover_orphaned_tasks()
         threading.Thread(target=_worker_loop, name="gtm-task-worker", daemon=True).start()
         _worker_started = True
 
