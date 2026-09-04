@@ -163,6 +163,15 @@ class CandidateEvaluation(Base):
     # this is never auto-filled from candidate_analysis.
     phone: Mapped[str] = mapped_column(String, default="")
     email: Mapped[str] = mapped_column(String, default="")
+    # The original uploaded resume file (Batch 4, production readiness) —
+    # resume_extraction.py already turns this into `data` above at
+    # upload time and never depends on these; this is purely additive,
+    # letting a recruiter open the original file later. file_key is the
+    # object-storage key (file_storage.py); both stay null when a
+    # candidate was added via pasted text, or when object storage isn't
+    # configured in this environment.
+    resume_file_key: Mapped[str | None] = mapped_column(String, default=None)
+    resume_filename: Mapped[str | None] = mapped_column(String, default=None)
     # Rolling AI-generated summary across every logged communication
     # (stages/conversation_summary.py) — regenerated after each new log
     # entry, never hand-edited, so it lives beside the log rather than

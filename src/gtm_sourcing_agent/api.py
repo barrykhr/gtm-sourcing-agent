@@ -21,7 +21,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from . import auth, db_storage, orchestrator, pipeline, resume_extraction, task_queue, webhooks
+from . import auth, db_storage, file_storage, orchestrator, pipeline, resume_extraction, task_queue, webhooks
 from .models.funnel import ForecastAssumptions
 from .models.interview_questions import InterviewQuestionHistory
 from .stages import calibration as calibration_stage
@@ -638,6 +638,7 @@ def _run_add_candidate(role_id: str, args: dict[str, Any]) -> dict[str, Any]:
     return candidate_analysis_stage.run(
         role_id, args["source_text"], args["role_family"],
         source_url=args.get("source_url", ""), storage_backend=db_storage,
+        resume_file_key=args.get("resume_file_key"), resume_filename=args.get("resume_filename"),
     ).model_dump()
 
 
@@ -814,9 +815,18 @@ async def upload_candidate(
         raise HTTPException(status_code=400, detail=str(e)) from None
     if not text.strip():
         raise HTTPException(status_code=400, detail="couldn't extract any text from that file")
+    # Best-effort: persist the original file alongside the extracted
+    # text. Returns None (silently) when object storage isn't
+    # configured in this environment — the upload still succeeds either
+    # way, exactly as it always has, since extraction never depended on
+    # this landing anywhere.
+    resume_file_key = file_storage.upload_resume(
+        role_id, file.filename or "resume", content, file.content_type or "application/octet-stream"
+    )
     _log(request, role_id, "added candidate (resume upload)", detail=file.filename or "")
     return task_queue.enqueue(role_id, "add_candidate", {
         "source_text": text, "role_family": role_family, "source_url": source_url,
+        "resume_file_key": resume_file_key, "resume_filename": file.filename or None,
     })
 
 
@@ -1041,6 +1051,25 @@ def set_candidate_contact(role_id: str, candidate_id: str, body: CandidateContac
     result = _run_stage(db_storage.set_candidate_contact, role_id, candidate_id, phone=body.phone, email=body.email)
     _log(request, role_id, "updated candidate contact info", candidate_id=candidate_id)
     return result
+
+
+@app.get("/jobs/{role_id}/candidates/{candidate_id}/resume")
+def get_candidate_resume_url(role_id: str, candidate_id: str) -> dict[str, Any]:
+    """Returns a time-limited download link for the original uploaded
+    resume file — never proxies the file bytes through this app. 404 if
+    this candidate has no stored resume (added via pasted text, or
+    object storage wasn't configured at upload time)."""
+    state = db_storage.load_role(role_id)
+    candidate = (state.get("candidates") or {}).get(candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404, detail=f"candidate '{candidate_id}' not found for role '{role_id}'")
+    file_key = candidate.get("resume_file_key")
+    if not file_key:
+        raise HTTPException(status_code=404, detail="no resume file stored for this candidate")
+    url = file_storage.get_resume_download_url(file_key)
+    if url is None:
+        raise HTTPException(status_code=503, detail="resume storage isn't available right now")
+    return {"url": url, "filename": candidate.get("resume_filename")}
 
 
 # ── conversation history (email/WhatsApp/call demo) ─────────────────────

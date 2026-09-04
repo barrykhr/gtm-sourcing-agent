@@ -70,6 +70,7 @@ def load_role(role_id: str) -> dict[str, Any]:
             state["candidates"][ev.candidate_evaluation_id] = {
                 **ev.data, "canonical_candidate_id": ev.canonical_candidate_id, "note": ev.note,
                 "phone": ev.phone, "email": ev.email,
+                "resume_file_key": ev.resume_file_key, "resume_filename": ev.resume_filename,
                 "conversation_summary": ev.conversation_summary,
                 "conversation_summary_updated_at": (
                     ev.conversation_summary_updated_at.isoformat() if ev.conversation_summary_updated_at else None
@@ -259,6 +260,27 @@ def set_candidate_contact(role_id: str, candidate_id: str, *, phone: str | None 
         row.updated_at = datetime.now(UTC)
         session.commit()
         return {"candidate_id": candidate_id, "phone": row.phone, "email": row.email}
+
+
+def set_candidate_resume(role_id: str, candidate_id: str, *, file_key: str, filename: str) -> dict[str, Any]:
+    """Records where the original uploaded resume file landed in object
+    storage (file_storage.py) — called once, right after a resume-upload
+    add_candidate task creates the candidate, never re-called on a later
+    edit (there's no "replace resume" flow)."""
+    with db.get_session() as session:
+        row = session.scalars(
+            select(CandidateEvaluation).where(
+                CandidateEvaluation.role_id == role_id,
+                CandidateEvaluation.candidate_evaluation_id == candidate_id,
+            )
+        ).first()
+        if row is None:
+            raise ValueError(f"candidate '{candidate_id}' not found for role '{role_id}'")
+        row.resume_file_key = file_key
+        row.resume_filename = filename
+        row.updated_at = datetime.now(UTC)
+        session.commit()
+        return {"candidate_id": candidate_id, "resume_file_key": file_key, "resume_filename": filename}
 
 
 def list_communications(role_id: str, candidate_id: str) -> list[dict[str, Any]]:
@@ -797,6 +819,8 @@ def _evaluation_summary(ev: CandidateEvaluation, jobs: dict[str, Job]) -> dict[s
         "recruiter_decision": p.get("recruiter_decision"),
         "phone": ev.phone,
         "email": ev.email,
+        "resume_file_key": ev.resume_file_key,
+        "resume_filename": ev.resume_filename,
     }
 
 

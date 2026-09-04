@@ -140,6 +140,8 @@ export type Candidate = {
   note: string;
   phone: string;
   email: string;
+  resume_file_key: string | null;
+  resume_filename: string | null;
   client_visible: boolean;
   conversation_summary: string;
   conversation_summary_updated_at: string | null;
@@ -609,6 +611,14 @@ export const setCandidateContact = (roleId: string, candidateId: string, phone?:
 
 export const getCommunications = (roleId: string, candidateId: string) =>
   get<ConversationHistory>(`/jobs/${roleId}/candidates/${candidateId}/communications`);
+
+// Resume file download (Batch 4, production readiness) — a time-limited
+// link straight to object storage; this app never proxies the bytes.
+// Only resolves for a candidate added via file upload while object
+// storage was configured — callers should expect this to 404 for a
+// candidate added via pasted text, or in an environment without it set up.
+export const getCandidateResumeUrl = (roleId: string, candidateId: string) =>
+  get<{ url: string; filename: string | null }>(`/jobs/${roleId}/candidates/${candidateId}/resume`);
 
 // The summary/intelligence regeneration is async (an LLM call each) —
 // logging itself is synchronous and returns immediately with the

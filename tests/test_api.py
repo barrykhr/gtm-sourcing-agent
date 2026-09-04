@@ -214,6 +214,104 @@ def test_upload_candidate_rejects_unsupported_file(isolated_db):
     assert "unsupported file type" in resp.json()["detail"]
 
 
+def test_upload_candidate_without_object_storage_configured_still_succeeds(isolated_db, fake_generate, monkeypatch):
+    # No RESUME_STORAGE_* env vars set in the test process — this must
+    # behave exactly as it always has (extraction-only), never fail the
+    # upload because file storage isn't configured.
+    from gtm_sourcing_agent import db_storage, file_storage
+    from gtm_sourcing_agent.models import Candidate
+
+    for var in (file_storage.ENV_BUCKET, file_storage.ENV_ACCESS_KEY_ID, file_storage.ENV_SECRET_ACCESS_KEY):
+        monkeypatch.delenv(var, raising=False)
+
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    db_storage.merge_section("ae-role", "icp", {"must_have": ["SaaS"]})
+    fake_generate.queue.append(Candidate(candidate_id="cand-1", name="Jane Doe"))
+
+    resp = client.post(
+        "/jobs/ae-role/candidates/upload",
+        files={"file": ("resume.txt", b"Jane Doe resume text", "text/plain")},
+        data={"role_family": "sales"},
+    )
+    assert resp.status_code == 202, resp.text
+    task = _wait_for_task("ae-role", resp.json()["task_id"])
+    assert task["status"] == "succeeded", task
+
+    candidate = client.get("/jobs/ae-role/candidates").json()[0]
+    assert candidate["resume_file_key"] is None
+
+    resume_resp = client.get("/jobs/ae-role/candidates/cand-1/resume")
+    assert resume_resp.status_code == 404
+
+
+def test_upload_candidate_with_object_storage_persists_original_file(isolated_db, fake_generate, monkeypatch):
+    import boto3
+    from moto import mock_aws
+
+    from gtm_sourcing_agent import db_storage, file_storage
+    from gtm_sourcing_agent.models import Candidate
+
+    bucket = "talyn-resumes-test"
+    monkeypatch.setenv(file_storage.ENV_BUCKET, bucket)
+    monkeypatch.setenv(file_storage.ENV_ACCESS_KEY_ID, "test-key")
+    monkeypatch.setenv(file_storage.ENV_SECRET_ACCESS_KEY, "test-secret")
+    monkeypatch.setenv(file_storage.ENV_REGION, "us-east-1")
+    monkeypatch.delenv(file_storage.ENV_ENDPOINT_URL, raising=False)
+    file_storage._client = None
+    file_storage._client_env_key = None
+
+    with mock_aws():
+        boto3.client("s3", region_name="us-east-1").create_bucket(Bucket=bucket)
+
+        client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+        db_storage.merge_section("ae-role", "icp", {"must_have": ["SaaS"]})
+        fake_generate.queue.append(Candidate(candidate_id="cand-1", name="Jane Doe"))
+
+        resp = client.post(
+            "/jobs/ae-role/candidates/upload",
+            files={"file": ("resume.txt", b"Jane Doe resume text", "text/plain")},
+            data={"role_family": "sales"},
+        )
+        assert resp.status_code == 202, resp.text
+        task = _wait_for_task("ae-role", resp.json()["task_id"])
+        assert task["status"] == "succeeded", task
+
+        candidate = client.get("/jobs/ae-role/candidates").json()[0]
+        assert candidate["resume_file_key"] is not None
+        assert candidate["resume_filename"] == "resume.txt"
+
+        resume_resp = client.get("/jobs/ae-role/candidates/cand-1/resume")
+        assert resume_resp.status_code == 200
+        body = resume_resp.json()
+        assert body["filename"] == "resume.txt"
+        assert bucket in body["url"]
+
+    file_storage._client = None
+    file_storage._client_env_key = None
+
+
+def test_get_resume_returns_404_when_no_resume_stored(isolated_db, fake_generate):
+    from gtm_sourcing_agent import db_storage
+    from gtm_sourcing_agent.models import Candidate
+
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    db_storage.merge_section("ae-role", "icp", {"must_have": ["SaaS"]})
+    fake_generate.queue.append(Candidate(candidate_id="cand-1", name="Jane Doe"))
+    resp = client.post(
+        "/jobs/ae-role/candidates", json={"source_text": "resume text", "role_family": "sales"}
+    )
+    _wait_for_task("ae-role", resp.json()["task_id"])
+
+    resume_resp = client.get("/jobs/ae-role/candidates/cand-1/resume")
+    assert resume_resp.status_code == 404
+
+
+def test_get_resume_returns_404_for_unknown_candidate(isolated_db):
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    resp = client.get("/jobs/ae-role/candidates/no-such-candidate/resume")
+    assert resp.status_code == 404
+
+
 def test_upload_jd_extracts_text_without_running_analysis(isolated_db):
     # Extraction only — this route never calls the LLM or writes
     # job_description; the recruiter reviews/edits the returned text in

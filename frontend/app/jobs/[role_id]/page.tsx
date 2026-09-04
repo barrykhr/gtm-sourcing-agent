@@ -23,6 +23,7 @@ import {
   cloneJob,
   getActivity,
   getCandidateGlobal,
+  getCandidateResumeUrl,
   getFunnelReport,
   getJob,
   getRecruiters,
@@ -1291,6 +1292,19 @@ function CandidatesTab({
     return run(`placed-${candidateId}`, () => setPlacement(roleId, candidateId, false));
   }
 
+  async function downloadResume(candidateId: string) {
+    setBusy(`resume-${candidateId}`);
+    setError(null);
+    try {
+      const { url } = await getCandidateResumeUrl(roleId, candidateId);
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Couldn't get the resume download link.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function bulkPrioritize() {
     const targets = (candidates ?? []).filter((c) => !c.prioritization);
     if (targets.length === 0) return;
@@ -1614,6 +1628,17 @@ function CandidatesTab({
                               <p className="mt-2 text-xs text-zinc-400">
                                 Pulled automatically from the uploaded resume — correct it in Contact below if needed.
                               </p>
+                              {c.resume_file_key && (
+                                <button
+                                  onClick={() => downloadResume(c.candidate_id)}
+                                  disabled={busy === `resume-${c.candidate_id}`}
+                                  className="mt-2 rounded-md border border-zinc-300 px-3 py-1.5 text-xs font-medium hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                                >
+                                  {busy === `resume-${c.candidate_id}`
+                                    ? "Opening…"
+                                    : `Download original resume${c.resume_filename ? ` (${c.resume_filename})` : ""}`}
+                                </button>
+                              )}
                             </Card>
 
                             <Card title="Client visibility">

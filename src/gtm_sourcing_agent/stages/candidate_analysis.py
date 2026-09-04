@@ -23,6 +23,8 @@ def run(
     source_url: str = "",
     *,
     storage_backend=storage,
+    resume_file_key: str | None = None,
+    resume_filename: str | None = None,
 ) -> Candidate:
     icp = storage_backend.require_section(role_id, "icp")
     prompt = llm_client.render_prompt(
@@ -47,5 +49,14 @@ def run(
     if (result.email or result.phone) and hasattr(storage_backend, "set_candidate_contact"):
         storage_backend.set_candidate_contact(
             role_id, result.candidate_id, phone=result.phone or None, email=result.email or None
+        )
+    # Same hasattr guard, same reason: only the DB backend (Batch 4,
+    # production readiness) knows how to record where the original
+    # resume file landed in object storage. resume_file_key is None
+    # whenever the candidate came from pasted text, or object storage
+    # isn't configured — either way, there's nothing to record.
+    if resume_file_key and hasattr(storage_backend, "set_candidate_resume"):
+        storage_backend.set_candidate_resume(
+            role_id, result.candidate_id, file_key=resume_file_key, filename=resume_filename or ""
         )
     return result
