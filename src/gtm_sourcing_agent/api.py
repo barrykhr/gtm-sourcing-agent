@@ -37,6 +37,20 @@ from .stages import screening as screening_stage
 from .stages import search_strategy as search_strategy_stage
 from .stages import talent_map as talent_map_stage
 
+# Without this, Python's logging defaults leave the root logger with no
+# handler below WARNING — every logger.info() call across this codebase
+# (task worker activity, Alembic migration runs, orphan-task recovery,
+# resume upload failures) would be silently dropped in production, not
+# just quiet. api.py is the actual process entrypoint in production
+# (uvicorn imports this module directly; there's no separate __main__ or
+# startup script), unlike cli.py's own basicConfig() call, which only
+# ever runs for a local CLI invocation. LOG_LEVEL lets an operator turn
+# up verbosity (e.g. DEBUG) without a code change.
+logging.basicConfig(
+    level=os.environ.get("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+
 app = FastAPI(title="Talyn API", version="0.1.0")
 logger = logging.getLogger(__name__)
 
