@@ -21,7 +21,10 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from . import auth, db_storage, file_storage, notifications, orchestrator, pipeline, resume_extraction, task_queue, webhooks
+from . import (
+    auth, db_storage, file_storage, followup_sweep, notifications, orchestrator, pipeline, resume_extraction,
+    task_queue, webhooks,
+)
 from .models.funnel import ForecastAssumptions
 from .models.interview_questions import InterviewQuestionHistory
 from .stages import calibration as calibration_stage
@@ -53,6 +56,12 @@ logging.basicConfig(
 
 app = FastAPI(title="Talyn API", version="0.1.0")
 logger = logging.getLogger(__name__)
+
+# Started at import time (once per server process, like task_queue's
+# worker) rather than lazily on first request — see followup_sweep's
+# docstring for why this is safe to leave running: it sends nothing
+# unless a recruiter has explicitly opted in via PUT /outreach/settings.
+followup_sweep.start()
 
 # ── auth (Phase 7) ──────────────────────────────────────────────────────
 # Every route below requires a valid session except this allowlist —
@@ -361,6 +370,10 @@ class CandidateAddRequest(BaseModel):
     source_url: str = ""
 
 
+class AttachExistingCandidateRequest(BaseModel):
+    canonical_candidate_id: str
+
+
 class FunnelUpdateRequest(BaseModel):
     stage: str
     note: str = ""
@@ -447,6 +460,11 @@ class CommunicationLogRequest(BaseModel):
     content: str = ""
     transcript: str | None = None
     contact_used: str = ""
+
+
+class WorkspaceSettingsRequest(BaseModel):
+    followup_template: str | None = None
+    auto_send_followups: bool | None = None
 
 
 class ForecastRequest(BaseModel):
@@ -663,6 +681,67 @@ def analytics_overview() -> dict[str, Any]:
 @app.get("/analytics/attention")
 def analytics_attention() -> dict[str, Any]:
     return db_storage.attention_needed()
+
+
+# ── outreach follow-up reminders (Outreach automation batch) ────────────
+# See db_storage.due_followups' docstring for the day-3/6/9 cadence and
+# the "no response since the original email" rule. Sending a follow-up
+# (below) is the exact same real SMTP send as the initial outreach
+# route — a follow-up is not simulated any more than the first email is.
+
+
+@app.get("/outreach/settings")
+def get_outreach_settings() -> dict[str, Any]:
+    return db_storage.get_workspace_settings()
+
+
+@app.put("/outreach/settings")
+def set_outreach_settings(
+    body: WorkspaceSettingsRequest, _admin: dict[str, Any] = Depends(require_role("admin")),
+) -> dict[str, Any]:
+    # Admin-only: auto_send_followups flips whether candidates get
+    # emailed with nobody clicking "send" that day — a workspace-wide
+    # behavior change, not a per-recruiter preference. Not logged via
+    # ActivityLog (same reason as PATCH /users/{id}/role): that table is
+    # job-scoped, and this change isn't about any one job.
+    return db_storage.set_workspace_settings(
+        followup_template=body.followup_template, auto_send_followups=body.auto_send_followups,
+    )
+
+
+@app.get("/outreach/followups/due")
+def get_due_followups() -> list[dict[str, Any]]:
+    return db_storage.due_followups()
+
+
+@app.post("/jobs/{role_id}/candidates/{candidate_id}/outreach/followup/send")
+def send_outreach_followup(role_id: str, candidate_id: str, request: Request) -> dict[str, Any]:
+    """Sends the specific due follow-up for this candidate right now —
+    the recruiter-triggered counterpart to the background sweep
+    (task_queue.py) that runs when auto_send_followups is on. Recomputes
+    "is this actually due" itself rather than trusting whatever the
+    frontend last fetched, so a stale due-list (e.g. the candidate
+    replied a minute ago) can't send a follow-up that shouldn't go out."""
+    due = {(d["role_id"], d["candidate_id"]): d for d in db_storage.due_followups()}
+    entry = due.get((role_id, candidate_id))
+    if entry is None:
+        raise HTTPException(status_code=400, detail="no follow-up is due for this candidate right now")
+    if not notifications.is_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="outbound email isn't configured on this server (see SMTP_* env vars) — nothing was sent",
+        )
+    sent = notifications.send_email(
+        [entry["email"]], f"Following up: {entry['role_title']}", entry["draft_message"],
+    )
+    if not sent:
+        raise HTTPException(status_code=502, detail="sending the follow-up failed — see server logs")
+    db_storage.log_communication(
+        role_id, candidate_id, channel="email", direction="outbound", content=entry["draft_message"],
+        contact_used=entry["email"], logged_by=request.state.user["email"], followup_stage=entry["followup_stage"],
+    )
+    _log(request, role_id, f"sent follow-up #{entry['followup_stage']}", candidate_id=candidate_id)
+    return {"sent_to": entry["email"], "followup_stage": entry["followup_stage"]}
 
 
 @app.get("/team/usage")
@@ -962,6 +1041,21 @@ async def bulk_import_candidates(
     return {"task_ids": task_ids, "queued": len(task_ids), "skipped_empty_rows": skipped}
 
 
+@app.post("/jobs/{role_id}/candidates/attach-existing")
+def attach_existing_candidate(role_id: str, body: AttachExistingCandidateRequest, request: Request) -> dict[str, Any]:
+    """The "pull info from the name of the candidate" alternative to
+    upload/paste (Outreach automation batch): reuses a candidate already
+    known from some other job — searched by name via GET /search?q= —
+    instead of re-uploading their resume and spending another LLM
+    extraction call. Synchronous (no task queue): this is a database
+    copy, not a model call. See db_storage.attach_existing_candidate for
+    what "reuse" means — the evidence carries over as-is, not re-tailored
+    to this role's ICP."""
+    result = _run_stage(db_storage.attach_existing_candidate, role_id, body.canonical_candidate_id)
+    _log(request, role_id, "added candidate (from existing profile)", detail=body.canonical_candidate_id)
+    return result
+
+
 @app.get("/jobs/{role_id}/candidates")
 def list_candidates(role_id: str) -> list[dict[str, Any]]:
     state = db_storage.load_role(role_id)
@@ -1079,6 +1173,52 @@ def mark_outreach_sent(role_id: str, candidate_id: str, request: Request) -> dic
     result = _run_stage(outreach_stage.mark_sent, role_id, candidate_id, storage_backend=db_storage)
     _log(request, role_id, "marked outreach sent", candidate_id=candidate_id)
     return result
+
+
+@app.post("/jobs/{role_id}/candidates/{candidate_id}/outreach/send")
+def send_outreach_email(role_id: str, candidate_id: str, request: Request) -> dict[str, Any]:
+    """Actually sends the drafted outreach email via SMTP (Outreach
+    automation batch) — the first thing in this codebase that sends
+    outreach itself rather than handing the recruiter a draft to copy.
+    Requires a draft to already exist (POST .../outreach) and an email
+    on file for the candidate (PATCH .../contact) — 400 either way if
+    not, same "check the checkpoint, don't fake it" pattern as every
+    other _run_stage route. Logs a CommunicationLogEntry exactly like a
+    manually-logged send, and reuses mark_sent's funnel-advance."""
+    state = db_storage.load_role(role_id)
+    candidate = (state.get("candidates") or {}).get(candidate_id)
+    if candidate is None:
+        raise HTTPException(status_code=404, detail=f"candidate '{candidate_id}' not found for role '{role_id}'")
+    email = candidate.get("email")
+    if not email:
+        raise HTTPException(
+            status_code=400,
+            detail="no email on file for this candidate — add one first (PATCH .../contact)",
+        )
+    draft = (state.get("outreach") or {}).get(candidate_id)
+    if draft is None:
+        raise HTTPException(status_code=400, detail="no outreach draft yet for this candidate — draft one first")
+    body = draft.get("email") or ""
+    if not body.strip():
+        raise HTTPException(status_code=400, detail="the outreach draft has no email body to send")
+    if not notifications.is_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="outbound email isn't configured on this server (see SMTP_* env vars) — nothing was sent",
+        )
+    jobs = {j["role_id"]: j for j in db_storage.list_jobs()}
+    role_title = (jobs.get(role_id) or {}).get("title") or role_id
+    sent = notifications.send_email([email], f"Regarding the {role_title} opportunity", body)
+    if not sent:
+        raise HTTPException(status_code=502, detail="sending the email failed — see server logs")
+    recruiter_email = request.state.user["email"]
+    db_storage.log_communication(
+        role_id, candidate_id, channel="email", direction="outbound", content=body,
+        contact_used=email, logged_by=recruiter_email, followup_stage=0,
+    )
+    result = _run_stage(outreach_stage.mark_sent, role_id, candidate_id, storage_backend=db_storage)
+    _log(request, role_id, "sent outreach email", candidate_id=candidate_id)
+    return {**result, "sent_to": email}
 
 
 @app.post("/jobs/{role_id}/candidates/{candidate_id}/decision")

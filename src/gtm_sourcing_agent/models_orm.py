@@ -259,14 +259,17 @@ class ActivityLog(Base):
 class CommunicationLogEntry(Base):
     """One logged touchpoint with a candidate — email, WhatsApp, or a
     phone call — in one place instead of split across three surfaces
-    (Conversation History batch). This repo has never sent anything
-    itself (see outreach.py's docstring); logging a "whatsapp"/"call"
-    entry records that the recruiter used the wa.me/tel: device handoff,
-    not that delivery or connection was confirmed — there is no
-    telephony or messaging backend to confirm that. `transcript` is
-    free text the recruiter fills in after a call; wiring a real
-    transcription provider would populate this same field automatically
-    without any schema change."""
+    (Conversation History batch). WhatsApp/call entries still just
+    record that the recruiter used the wa.me/tel: device handoff, not a
+    delivery confirmation — there's no telephony backend for that. Email
+    is different since the Outreach automation batch: an "email"/
+    "outbound" row can now mean the app actually sent it via SMTP (see
+    api.py's outreach/send route and notifications.py), not just a
+    recruiter-reported action — `logged_by` distinguishes an app-sent
+    row (the sending recruiter's email, same as always) from nothing
+    else changing shape. `transcript` is free text the recruiter fills
+    in after a call; wiring a real transcription provider would populate
+    this same field automatically without any schema change."""
 
     __tablename__ = "communication_log_entries"
 
@@ -279,4 +282,39 @@ class CommunicationLogEntry(Base):
     transcript: Mapped[str | None] = mapped_column(String, default=None)
     contact_used: Mapped[str] = mapped_column(String, default="")  # the phone/email actually used
     logged_by: Mapped[str] = mapped_column(String, default="")
+    # 0 = the initial outreach (or any manually-logged entry); 1/2/3 =
+    # the day-3/6/9 automated follow-up (Outreach automation batch — see
+    # db_storage.due_followups). Lets the reminder engine find "how many
+    # follow-ups has this candidate already had" without a separate table.
+    followup_stage: Mapped[int] = mapped_column(default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+_DEFAULT_FOLLOWUP_TEMPLATE = (
+    "Hi {candidate_name},\n\n"
+    "Just following up on my note about the {role_title} role — wanted to check "
+    "if you'd had a chance to look it over. Happy to share more detail or jump "
+    "on a quick call, whichever's easier.\n\n"
+    "Best,\n{recruiter_name}"
+)
+
+
+class WorkspaceSettings(Base):
+    """One shared-workspace-wide row (Outreach automation batch) — id is
+    always "default"; there's exactly one row, matching this product's
+    single shared-workspace design (see User's docstring — no per-team
+    partitioning exists to hang per-team settings off of).
+    `followup_template` is the day-3/6/9 nudge text a recruiter can edit
+    (see db_storage.due_followups); `auto_send_followups` is off by
+    default — turning it on lets the background sweep (task_queue.py)
+    actually send a candidate that nudge with nobody clicking "send"
+    that day. That's a deliberate opt-in, not a default behavior, since
+    it's the one place this app sends something with no per-message
+    human click."""
+
+    __tablename__ = "workspace_settings"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default="default")
+    followup_template: Mapped[str] = mapped_column(String, default=_DEFAULT_FOLLOWUP_TEMPLATE)
+    auto_send_followups: Mapped[bool] = mapped_column(default=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)

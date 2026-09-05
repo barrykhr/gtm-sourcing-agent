@@ -24,8 +24,9 @@ merge_prioritization now, never by a generic whole-state write-back.
 import logging
 import re
 import secrets
+import unicodedata
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -34,7 +35,7 @@ from sqlalchemy.orm import Session
 from . import db, revenue
 from .models_orm import (
     ActivityLog, CandidateEvaluation, CanonicalCandidate, CommunicationLogEntry, Job, JobRecruiter, JobSection,
-    Task, User,
+    Task, User, WorkspaceSettings,
 )
 
 logger = logging.getLogger(__name__)
@@ -202,6 +203,63 @@ def merge_candidate(role_id: str, candidate_id: str, value: dict[str, Any]) -> d
     return load_role(role_id)
 
 
+def _slugify_name(name: str, role_id: str) -> str:
+    """Same shape as candidate_analysis.py's own _slugify — duplicated
+    rather than imported since db_storage.py stays independent of
+    stages/*.py (this module is the lower layer)."""
+    normalized = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode()
+    slug = re.sub(r"[^a-z0-9]+", "-", normalized.lower()).strip("-")
+    return f"{role_id}-{slug}"
+
+
+def attach_existing_candidate(role_id: str, canonical_candidate_id: str) -> dict[str, Any]:
+    """Reuses an already-extracted candidate (added for some other job)
+    on a new role, without re-uploading a resume or spending another LLM
+    extraction call — the "search by name" alternative to upload/paste
+    on the add-candidate flow (Outreach automation batch). Copies the
+    most recent evaluation's evidence as-is: it was extracted against
+    whichever job's ICP produced it, so it's a starting point for the
+    recruiter to review on this role, not re-tailored to this role's
+    ICP. Raises ValueError (mapped to 400 by the API layer) if the job
+    or candidate doesn't exist, there's nothing to copy from, or this
+    candidate is already on this role."""
+    with db.get_session() as session:
+        if session.get(Job, role_id) is None:
+            raise ValueError(f"job '{role_id}' not found")
+        canonical = session.get(CanonicalCandidate, canonical_candidate_id)
+        if canonical is None:
+            raise ValueError(f"candidate '{canonical_candidate_id}' not found")
+        source_eval = session.scalars(
+            select(CandidateEvaluation)
+            .where(CandidateEvaluation.canonical_candidate_id == canonical_candidate_id)
+            .order_by(CandidateEvaluation.updated_at.desc())
+        ).first()
+        if source_eval is None:
+            raise ValueError(f"'{canonical.name}' has no existing evaluation to reuse")
+        candidate_evaluation_id = _slugify_name(canonical.name, role_id)
+        already_here = session.scalars(
+            select(CandidateEvaluation).where(
+                CandidateEvaluation.role_id == role_id,
+                CandidateEvaluation.candidate_evaluation_id == candidate_evaluation_id,
+            )
+        ).first()
+        if already_here is not None:
+            raise ValueError(f"'{canonical.name}' has already been added to this role")
+        data = dict(source_eval.data)
+        data["candidate_id"] = candidate_evaluation_id
+        session.add(CandidateEvaluation(
+            role_id=role_id, candidate_evaluation_id=candidate_evaluation_id,
+            canonical_candidate_id=canonical.id, data=data,
+            phone=source_eval.phone, email=source_eval.email,
+        ))
+        session.commit()
+        logger.info(
+            "attached existing candidate canonical_id=%s to role_id=%s as %s",
+            canonical_candidate_id, role_id, candidate_evaluation_id,
+        )
+    return load_role(role_id)
+
+
 def merge_prioritization(role_id: str, candidate_id: str, value: dict[str, Any]) -> dict[str, Any]:
     with db.get_session() as session:
         row = session.scalars(
@@ -303,7 +361,7 @@ def list_communications(role_id: str, candidate_id: str) -> list[dict[str, Any]]
             {
                 "id": r.id, "channel": r.channel, "direction": r.direction, "content": r.content,
                 "transcript": r.transcript, "contact_used": r.contact_used, "logged_by": r.logged_by,
-                "created_at": r.created_at.isoformat(),
+                "followup_stage": r.followup_stage, "created_at": r.created_at.isoformat(),
             }
             for r in rows
         ]
@@ -311,7 +369,7 @@ def list_communications(role_id: str, candidate_id: str) -> list[dict[str, Any]]
 
 def log_communication(
     role_id: str, candidate_id: str, *, channel: str, direction: str, content: str,
-    transcript: str | None = None, contact_used: str = "", logged_by: str = "",
+    transcript: str | None = None, contact_used: str = "", logged_by: str = "", followup_stage: int = 0,
 ) -> dict[str, Any]:
     with db.get_session() as session:
         if session.get(Job, role_id) is None:
@@ -327,13 +385,14 @@ def log_communication(
         entry = CommunicationLogEntry(
             role_id=role_id, candidate_evaluation_id=candidate_id, channel=channel, direction=direction,
             content=content, transcript=transcript, contact_used=contact_used, logged_by=logged_by,
+            followup_stage=followup_stage,
         )
         session.add(entry)
         session.commit()
         return {
             "id": entry.id, "channel": entry.channel, "direction": entry.direction, "content": entry.content,
             "transcript": entry.transcript, "contact_used": entry.contact_used, "logged_by": entry.logged_by,
-            "created_at": entry.created_at.isoformat(),
+            "followup_stage": entry.followup_stage, "created_at": entry.created_at.isoformat(),
         }
 
 
@@ -1286,3 +1345,118 @@ def list_activity(role_id: str, limit: int = 50) -> list[dict[str, Any]]:
             }
             for r in rows
         ]
+
+
+# ── outreach follow-up reminders (Outreach automation batch) ────────────
+# Template-based, not another LLM call: the day-3/6/9 nudge is
+# deterministic text with placeholders filled in, cheap and reliable to
+# run on a schedule. "Due" is computed fresh on every call rather than
+# stored — there's no separate scheduling table, just CommunicationLogEntry
+# rows already written by outreach send/log_communication.
+
+FOLLOWUP_THRESHOLDS_DAYS = {1: 3, 2: 6, 3: 9}
+MAX_FOLLOWUP_STAGE = 3
+
+
+def get_workspace_settings() -> dict[str, Any]:
+    with db.get_session() as session:
+        row = session.get(WorkspaceSettings, "default")
+        if row is None:
+            row = WorkspaceSettings(id="default")
+            session.add(row)
+            session.commit()
+        return {
+            "followup_template": row.followup_template,
+            "auto_send_followups": row.auto_send_followups,
+        }
+
+
+def set_workspace_settings(*, followup_template: str | None = None, auto_send_followups: bool | None = None) -> dict[str, Any]:
+    with db.get_session() as session:
+        row = session.get(WorkspaceSettings, "default")
+        if row is None:
+            row = WorkspaceSettings(id="default")
+            session.add(row)
+        if followup_template is not None:
+            row.followup_template = followup_template
+        if auto_send_followups is not None:
+            row.auto_send_followups = auto_send_followups
+        row.updated_at = datetime.now(UTC)
+        session.commit()
+        return {"followup_template": row.followup_template, "auto_send_followups": row.auto_send_followups}
+
+
+def render_followup_message(template: str, *, candidate_name: str, role_title: str, recruiter_name: str) -> str:
+    try:
+        return template.format(
+            candidate_name=candidate_name or "there", role_title=role_title or "this role",
+            recruiter_name=recruiter_name or "the team",
+        )
+    except (KeyError, IndexError):
+        # An edited template with a typo'd/unknown placeholder shouldn't
+        # break sending — fall back to the raw template text rather than
+        # raising into a background sweep or a recruiter's click.
+        return template
+
+
+def due_followups() -> list[dict[str, Any]]:
+    """Every candidate whose day-3/6/9 follow-up is due right now: no
+    inbound reply logged since the original outreach email, and not
+    already at the 3-follow-up cap. Days are counted from the *original*
+    outbound email (followup_stage=0), so "day 3/6/9" always means what
+    it says regardless of exactly when this function happens to run.
+    Read-only — sending (and thus advancing followup_stage) happens via
+    log_communication, called from api.py's send routes."""
+    settings = get_workspace_settings()
+    now = datetime.now(UTC)
+    with db.get_session() as session:
+        jobs = {j.role_id: j for j in session.scalars(select(Job)).all()}
+        evaluations = session.scalars(select(CandidateEvaluation).where(CandidateEvaluation.email != "")).all()
+        due: list[dict[str, Any]] = []
+        for ev in evaluations:
+            job = jobs.get(ev.role_id)
+            if job is None:
+                continue
+            entries = session.scalars(
+                select(CommunicationLogEntry)
+                .where(
+                    CommunicationLogEntry.role_id == ev.role_id,
+                    CommunicationLogEntry.candidate_evaluation_id == ev.candidate_evaluation_id,
+                )
+                .order_by(CommunicationLogEntry.created_at)
+            ).all()
+            initial = next(
+                (e for e in entries if e.channel == "email" and e.direction == "outbound" and e.followup_stage == 0),
+                None,
+            )
+            if initial is None:
+                continue
+            initial_at = initial.created_at.replace(tzinfo=UTC) if initial.created_at.tzinfo is None else initial.created_at
+            has_response = any(
+                (e.created_at.replace(tzinfo=UTC) if e.created_at.tzinfo is None else e.created_at) > initial_at
+                and e.direction == "inbound"
+                for e in entries
+            )
+            if has_response:
+                continue
+            sent_stages = {
+                e.followup_stage for e in entries
+                if e.channel == "email" and e.direction == "outbound" and e.followup_stage > 0
+            }
+            next_stage = next((s for s in (1, 2, 3) if s not in sent_stages), None)
+            if next_stage is None or next_stage > MAX_FOLLOWUP_STAGE:
+                continue
+            days_since = (now - initial_at) / timedelta(days=1)
+            if days_since < FOLLOWUP_THRESHOLDS_DAYS[next_stage]:
+                continue
+            candidate_name = ev.data.get("name", "")
+            due.append({
+                "role_id": ev.role_id, "role_title": job.title or ev.role_id,
+                "candidate_id": ev.candidate_evaluation_id, "candidate_name": candidate_name,
+                "email": ev.email, "followup_stage": next_stage, "days_since_initial_outreach": round(days_since, 1),
+                "draft_message": render_followup_message(
+                    settings["followup_template"], candidate_name=candidate_name,
+                    role_title=job.title or ev.role_id, recruiter_name=job.owner_email or "",
+                ),
+            })
+        return due

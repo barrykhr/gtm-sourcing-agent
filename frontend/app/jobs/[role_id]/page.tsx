@@ -17,8 +17,10 @@ import {
   JobDetail,
   JobLifecycleStatus,
   RoleRecruiter,
+  SearchResult,
   addCandidate,
   addRecruiter,
+  attachExistingCandidate,
   bulkImportCandidates,
   cloneJob,
   getActivity,
@@ -41,6 +43,8 @@ import {
   runSearchStrategy,
   runTalentMap,
   screenCandidate,
+  search,
+  sendOutreachEmail,
   generateShareLink,
   revokeShareLink,
   setCandidateNote,
@@ -1224,9 +1228,16 @@ function CandidatesTab({
   const [sourceText, setSourceText] = useState("");
   const [roleFamily, setRoleFamily] = useState(job.role_family ?? "");
   const [sourceUrl, setSourceUrl] = useState("");
-  const [addMode, setAddMode] = useState<"paste" | "upload" | "bulk">("paste");
+  const [addMode, setAddMode] = useState<"paste" | "upload" | "existing" | "bulk">("paste");
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [csvFile, setCsvFile] = useState<File | null>(null);
+  // "Use existing candidate" (Outreach automation batch) — search by
+  // name across every job's candidates instead of re-uploading a resume
+  // for someone already in the system.
+  const [existingQuery, setExistingQuery] = useState("");
+  const [existingResults, setExistingResults] = useState<SearchResult["candidates"]>([]);
+  const [existingSelectedId, setExistingSelectedId] = useState<string | null>(null);
+  const [existingSearching, setExistingSearching] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [decisionDraft, setDecisionDraft] = useState<Record<string, string>>({});
@@ -1254,6 +1265,20 @@ function CandidatesTab({
   }, [roleId]);
 
   useEffect(loadCandidates, [loadCandidates, dataVersion]);
+
+  async function searchExisting() {
+    if (!existingQuery.trim()) return;
+    setExistingSearching(true);
+    setError(null);
+    try {
+      const result = await search(existingQuery);
+      setExistingResults(result.candidates);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Search failed.");
+    } finally {
+      setExistingSearching(false);
+    }
+  }
 
   async function run(name: string, action: () => Promise<unknown>) {
     setBusy(name);
@@ -1423,7 +1448,7 @@ function CandidatesTab({
         <Card title="Add a candidate">
           <div className="flex flex-col gap-3">
             <div className="flex gap-1 rounded-md border border-zinc-300 p-1 text-sm dark:border-zinc-700 w-fit">
-              {(["paste", "upload", "bulk"] as const).map((m) => (
+              {(["paste", "upload", "existing", "bulk"] as const).map((m) => (
                 <button
                   key={m}
                   onClick={() => setAddMode(m)}
@@ -1433,12 +1458,53 @@ function CandidatesTab({
                       : "text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
                   }`}
                 >
-                  {m === "paste" ? "Paste text" : m === "upload" ? "Upload file" : "Bulk CSV"}
+                  {m === "paste" ? "Paste text" : m === "upload" ? "Upload file" : m === "existing" ? "Use existing" : "Bulk CSV"}
                 </button>
               ))}
             </div>
 
-            {addMode === "paste" ? (
+            {addMode === "existing" ? (
+              <div className="flex flex-col gap-2">
+                <p className="text-xs text-zinc-500">
+                  Already added this person for another role? Search by name to reuse what&apos;s known about
+                  them instead of re-uploading their resume.
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    value={existingQuery}
+                    onChange={(e) => { setExistingQuery(e.target.value); setExistingSelectedId(null); }}
+                    onKeyDown={(e) => e.key === "Enter" && searchExisting()}
+                    placeholder="Search by candidate name…"
+                    className="flex-1 rounded-md border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-zinc-950"
+                  />
+                  <button
+                    onClick={searchExisting}
+                    disabled={existingSearching || !existingQuery.trim()}
+                    className="rounded-md border border-zinc-300 px-3 py-2 text-sm font-medium hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+                  >
+                    {existingSearching ? "Searching…" : "Search"}
+                  </button>
+                </div>
+                {existingResults.length > 0 && (
+                  <div className="flex flex-col gap-1 rounded-md border border-zinc-200 dark:border-zinc-800">
+                    {existingResults.map((r) => (
+                      <button
+                        key={r.candidate_id}
+                        onClick={() => setExistingSelectedId(r.candidate_id)}
+                        className={`flex items-center justify-between px-3 py-2 text-left text-sm ${
+                          existingSelectedId === r.candidate_id
+                            ? "bg-indigo-50 dark:bg-indigo-950"
+                            : "hover:bg-zinc-50 dark:hover:bg-zinc-900"
+                        }`}
+                      >
+                        <span className="font-medium">{r.name}</span>
+                        <span className="text-xs text-zinc-500">{r.current_title} @ {r.current_company}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : addMode === "paste" ? (
               <textarea
                 value={sourceText} onChange={(e) => setSourceText(e.target.value)} rows={6}
                 placeholder="Paste resume text / LinkedIn profile text / recruiter notes…"
@@ -1477,17 +1543,29 @@ function CandidatesTab({
             )}
 
             <div className="flex flex-wrap gap-2">
-              <input
-                value={roleFamily} onChange={(e) => setRoleFamily(e.target.value)} placeholder="role family (sales, csm…)"
-                className="flex-1 min-w-40 rounded-md border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-zinc-950"
-              />
-              {addMode !== "bulk" && (
+              {addMode !== "existing" && (
+                <input
+                  value={roleFamily} onChange={(e) => setRoleFamily(e.target.value)} placeholder="role family (sales, csm…)"
+                  className="flex-1 min-w-40 rounded-md border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-zinc-950"
+                />
+              )}
+              {addMode !== "bulk" && addMode !== "existing" && (
                 <input
                   value={sourceUrl} onChange={(e) => setSourceUrl(e.target.value)} placeholder="source URL (optional)"
                   className="flex-1 min-w-40 rounded-md border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-zinc-950"
                 />
               )}
-              {addMode === "paste" ? (
+              {addMode === "existing" ? (
+                <ActionButton
+                  label="Attach candidate" busyLabel="Attaching…" busy={busy === "add"}
+                  disabled={!existingSelectedId}
+                  onClick={() =>
+                    run("add", () => attachExistingCandidate(roleId, existingSelectedId!)).then(() => {
+                      setExistingQuery(""); setExistingResults([]); setExistingSelectedId(null); setShowAddForm(false);
+                    })
+                  }
+                />
+              ) : addMode === "paste" ? (
                 <ActionButton
                   label="Add candidate" busyLabel="Analysing…" busy={busy === "add"}
                   disabled={!sourceText.trim() || !roleFamily.trim()}
@@ -2088,6 +2166,23 @@ function OutreachTab({
     }
   }
 
+  // Outreach automation batch: actually sends the email (SMTP) instead
+  // of just handing the recruiter a mailto: link — see api.ts's
+  // sendOutreachEmail. Same busy/error handling as markSent above,
+  // since it also updates outreach_log + funnel on success.
+  async function sendNow(candidateId: string) {
+    setBusy(candidateId);
+    setError(null);
+    try {
+      await sendOutreachEmail(roleId, candidateId);
+      refresh();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not send the email.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   if (candidates.length === 0) {
     return <p className="text-sm text-zinc-500">No candidates yet — add some in the Candidates tab.</p>;
   }
@@ -2096,10 +2191,9 @@ function OutreachTab({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-400">
-        Drafts only — sending isn&apos;t built yet (no email/LinkedIn integration). Copy the draft you want to
-        use, then mark it sent here once you&apos;ve reached out yourself — that just records your own action
-        and moves the pipeline card to Contacted, it doesn&apos;t send anything.
+      <div className="rounded-md border border-zinc-200 bg-zinc-50 px-4 py-2 text-xs text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
+        Add an email on the Candidates tab and &quot;Send email now&quot; sends it for real. LinkedIn still isn&apos;t
+        sendable from here — copy the draft and reach out yourself, then use &quot;Mark as sent&quot; to record it.
       </div>
       {undrafted.length > 0 && (
         <div className="flex items-center justify-between">
@@ -2152,10 +2246,21 @@ function OutreachTab({
                     Open in email
                   </a>
                 )}
-                {draft && !sentAt && (
+                {draft?.email && !sentAt && c.email && (
+                  <button
+                    onClick={() => sendNow(c.candidate_id)}
+                    disabled={busy === c.candidate_id}
+                    title={`Sends the draft above to ${c.email} via this server's email config`}
+                    className="rounded-md bg-indigo-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-800 disabled:opacity-50"
+                  >
+                    {busy === c.candidate_id ? "Sending…" : "Send email now"}
+                  </button>
+                )}
+                {draft && !sentAt && !c.email && (
                   <button
                     onClick={() => markSent(c.candidate_id)}
                     disabled={busy === c.candidate_id}
+                    title="No email on file for this candidate — add one to send directly instead"
                     className="rounded-md bg-indigo-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-800 disabled:opacity-50"
                   >
                     Mark as sent

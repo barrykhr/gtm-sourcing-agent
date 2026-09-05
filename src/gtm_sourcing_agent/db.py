@@ -11,6 +11,7 @@ DATABASE_URL set, not the SQLite default.
 """
 
 import os
+import threading
 from pathlib import Path
 
 from sqlalchemy import Engine, create_engine
@@ -23,6 +24,17 @@ DB_PATH = DATA_DIR / "gtm_sourcing_agent.db"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 _engines: dict[str, Engine] = {}
+# Alembic's EnvironmentContext keeps module-level global state across
+# enter/exit (see alembic.runtime.environment), which isn't safe to run
+# from two threads at once — this app has more than one background
+# thread that can call get_session() (task_queue.py's worker,
+# followup_sweep.py's sweep), any of which might be the first to touch
+# a not-yet-migrated URL at the same moment another thread is migrating
+# a different one. Observed concretely as a KeyError deep inside
+# Alembic's teardown under test load; this lock serializes engine
+# creation (a one-time, per-URL cost) without serializing normal query
+# traffic, which never touches this lock.
+_engine_lock = threading.Lock()
 
 
 def _run_migrations(url: str) -> None:
@@ -64,7 +76,11 @@ def _database_url() -> str:
 
 def _get_engine() -> Engine:
     url = _database_url()
-    if url not in _engines:
+    if url in _engines:
+        return _engines[url]
+    with _engine_lock:
+        if url in _engines:  # a racing thread may have finished while we waited for the lock
+            return _engines[url]
         if url.startswith("sqlite:"):
             connect_args = {"check_same_thread": False}
             pool_kwargs = {}

@@ -40,6 +40,7 @@ const post = <T>(path: string, body?: unknown) =>
   request<T>(path, { method: "POST", body: body ? JSON.stringify(body) : undefined });
 const get = <T>(path: string) => request<T>(path);
 const patch = <T>(path: string, body: unknown) => request<T>(path, { method: "PATCH", body: JSON.stringify(body) });
+const put = <T>(path: string, body: unknown) => request<T>(path, { method: "PUT", body: JSON.stringify(body) });
 
 // Every stage response is validated server-side against a Pydantic schema
 // (see models/*.py) — the frontend doesn't re-declare each one, since the
@@ -537,6 +538,52 @@ export type MarkSentResult = { candidate_id: string; sent_at: string; funnel_sta
 
 export const markOutreachSent = (roleId: string, candidateId: string) =>
   post<MarkSentResult>(`/jobs/${roleId}/candidates/${candidateId}/outreach/mark-sent`);
+
+// Outreach automation batch: actually sends the drafted email via the
+// server's SMTP config (notifications.py), rather than the mailto:
+// handoff above — the recruiter still clicks "Send", the app does the
+// sending. Requires a draft and a candidate email on file; see api.py's
+// send_outreach_email for the 400/503/502 cases this can return.
+export type SendOutreachResult = MarkSentResult & { sent_to: string };
+
+export const sendOutreachEmail = (roleId: string, candidateId: string) =>
+  post<SendOutreachResult>(`/jobs/${roleId}/candidates/${candidateId}/outreach/send`);
+
+// "Pull info from the name of the candidate" — reuse a candidate already
+// known from some other job (found via search() above) instead of
+// re-uploading their resume. canonical_candidate_id comes from a
+// SearchResult candidate's candidate_id.
+export const attachExistingCandidate = (roleId: string, canonicalCandidateId: string) =>
+  post<Json>(`/jobs/${roleId}/candidates/attach-existing`, { canonical_candidate_id: canonicalCandidateId });
+
+// Day-3/6/9 follow-up reminders (Outreach automation batch) — template-
+// based, not another AI call. auto_send_followups is off by default;
+// turning it on lets the server send these with nobody clicking
+// anything that day (see followup_sweep.py).
+export type OutreachSettings = { followup_template: string; auto_send_followups: boolean };
+
+export const getOutreachSettings = () => get<OutreachSettings>("/outreach/settings");
+
+export const setOutreachSettings = (settings: Partial<OutreachSettings>) =>
+  put<OutreachSettings>("/outreach/settings", settings);
+
+export type DueFollowup = {
+  role_id: string;
+  role_title: string;
+  candidate_id: string;
+  candidate_name: string;
+  email: string;
+  followup_stage: number;
+  days_since_initial_outreach: number;
+  draft_message: string;
+};
+
+export const getDueFollowups = () => get<DueFollowup[]>("/outreach/followups/due");
+
+export const sendOutreachFollowup = (roleId: string, candidateId: string) =>
+  post<{ sent_to: string; followup_stage: number }>(
+    `/jobs/${roleId}/candidates/${candidateId}/outreach/followup/send`
+  );
 
 // The only thing that can move a candidate out of the active pool
 // (Architecture §1.1) — always recruiter-authored, never set by any

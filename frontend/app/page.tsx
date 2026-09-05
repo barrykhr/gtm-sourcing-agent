@@ -7,14 +7,17 @@ import {
   ApiError,
   AttentionNeeded,
   CLOSED_LIFECYCLE_STATUSES,
+  DueFollowup,
   JOB_LIFECYCLE_LABELS,
   RevenueOverview,
   createJob,
   getAnalyticsOverview,
   getAttentionNeeded,
+  getDueFollowups,
   getRevenueOverview,
   JobSummary,
   listJobs,
+  sendOutreachFollowup,
 } from "@/lib/api";
 import { StatusChip } from "@/components/StatusChip";
 import { ProgressBar } from "@/components/ui/ProgressBar";
@@ -78,6 +81,8 @@ export default function Dashboard() {
   const [jobs, setJobs] = useState<JobSummary[] | null>(null);
   const [overview, setOverview] = useState<AnalyticsOverview | null>(null);
   const [attention, setAttention] = useState<AttentionNeeded | null>(null);
+  const [dueFollowups, setDueFollowups] = useState<DueFollowup[]>([]);
+  const [sendingFollowup, setSendingFollowup] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [title, setTitle] = useState("");
@@ -99,12 +104,29 @@ export default function Dashboard() {
     getAttentionNeeded()
       .then(setAttention)
       .catch(() => {});
+    getDueFollowups()
+      .then(setDueFollowups)
+      .catch(() => {}); // non-critical — same "don't block the dashboard" treatment as attention above
     getRevenueOverview()
       .then(setRevenue)
       .catch(() => {}); // non-critical — role values are optional, this section just doesn't render without them
   };
 
   useEffect(refresh, []);
+
+  async function sendFollowup(item: DueFollowup) {
+    const key = `${item.role_id}-${item.candidate_id}`;
+    setSendingFollowup(key);
+    setError(null);
+    try {
+      await sendOutreachFollowup(item.role_id, item.candidate_id);
+      refresh();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not send the follow-up.");
+    } finally {
+      setSendingFollowup(null);
+    }
+  }
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -246,6 +268,44 @@ export default function Dashboard() {
             </div>
           )}
           </div>
+        </div>
+      )}
+
+      {dueFollowups.length > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-900 dark:bg-amber-950">
+          <h2 className="text-sm font-semibold text-amber-800 dark:text-amber-400">
+            Follow-ups due ({dueFollowups.length})
+          </h2>
+          <p className="mt-1 text-xs text-amber-700 dark:text-amber-500">
+            No reply logged since the original email — day 3/6/9 cadence, capped at 3.
+          </p>
+          <ul className="mt-2 flex flex-col gap-1.5">
+            {dueFollowups.map((item) => {
+              const key = `${item.role_id}-${item.candidate_id}`;
+              return (
+                <li key={key} className="flex items-center justify-between gap-3">
+                  <button
+                    onClick={() => router.push(`/jobs/${item.role_id}`)}
+                    className="text-left text-sm hover:underline"
+                  >
+                    <span className="font-medium">{item.candidate_name}</span>
+                    <span className="text-xs text-zinc-500">
+                      {" "}
+                      — {item.role_title} · follow-up #{item.followup_stage} · {item.days_since_initial_outreach}d
+                      since first email
+                    </span>
+                  </button>
+                  <button
+                    onClick={() => sendFollowup(item)}
+                    disabled={sendingFollowup === key}
+                    className="shrink-0 rounded-md bg-indigo-700 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-800 disabled:opacity-50"
+                  >
+                    {sendingFollowup === key ? "Sending…" : "Send follow-up"}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
         </div>
       )}
 

@@ -6,6 +6,7 @@ import {
   ApiError,
   ConversionCounts,
   IntegrationStatus,
+  OutreachSettings,
   RecruiterRevenue,
   RecruiterUsage,
   RecruiterVelocity,
@@ -13,10 +14,12 @@ import {
   TeamUsage,
   VelocityReport,
   getIntegrationsStatus,
+  getOutreachSettings,
   getRevenueByRecruiter,
   getTeamUsage,
   getTeamVelocity,
   listUsers,
+  setOutreachSettings,
   setUserRole,
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
@@ -247,6 +250,100 @@ function RoleManagementPanel() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Outreach follow-up settings (Outreach automation batch) — admin-only,
+// same reasoning as RoleManagementPanel: auto_send_followups changes
+// workspace-wide behavior (candidates get emailed with nobody clicking
+// "send" that day), not a per-recruiter preference.
+function OutreachSettingsPanel() {
+  const { user } = useAuth();
+  const [settings, setSettings] = useState<OutreachSettings | null>(null);
+  const [template, setTemplate] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    if (user?.role !== "admin") return;
+    getOutreachSettings()
+      .then((s) => { setSettings(s); setTemplate(s.followup_template); })
+      .catch((e) => setError(e instanceof ApiError ? e.message : "Could not load outreach settings."));
+  }, [user?.role]);
+
+  if (user?.role !== "admin") return null;
+
+  async function toggleAutoSend() {
+    if (!settings) return;
+    setError(null);
+    setSaved(false);
+    try {
+      const updated = await setOutreachSettings({ auto_send_followups: !settings.auto_send_followups });
+      setSettings(updated);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not update the setting.");
+    }
+  }
+
+  async function saveTemplate() {
+    setSaving(true);
+    setError(null);
+    setSaved(false);
+    try {
+      const updated = await setOutreachSettings({ followup_template: template });
+      setSettings(updated);
+      setSaved(true);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not save the template.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div>
+      <h2 className="font-display text-xl tracking-tight">Outreach follow-ups</h2>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Admin-only. Controls the day-3/6/9 reminder that fires when a candidate hasn&apos;t replied to an outreach
+        email.
+      </p>
+      {error && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{error}</p>}
+      {settings === null ? (
+        <p className="mt-3 text-sm text-zinc-500">Loading…</p>
+      ) : (
+        <div className="mt-3 flex flex-col gap-4">
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={settings.auto_send_followups} onChange={toggleAutoSend} />
+            Auto-send follow-ups (off = due follow-ups just show on the dashboard for you to send yourself)
+          </label>
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium text-zinc-500" htmlFor="followup-template">
+              Follow-up template — placeholders: <code className="rounded bg-zinc-100 px-1 dark:bg-zinc-800">{"{candidate_name}"}</code>{" "}
+              <code className="rounded bg-zinc-100 px-1 dark:bg-zinc-800">{"{role_title}"}</code>{" "}
+              <code className="rounded bg-zinc-100 px-1 dark:bg-zinc-800">{"{recruiter_name}"}</code>
+            </label>
+            <textarea
+              id="followup-template"
+              value={template}
+              onChange={(e) => { setTemplate(e.target.value); setSaved(false); }}
+              rows={6}
+              className="w-full rounded-md border border-zinc-300 p-3 text-sm outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-zinc-950"
+            />
+            <div className="flex items-center gap-3">
+              <button
+                onClick={saveTemplate}
+                disabled={saving || template === settings.followup_template}
+                className="self-start rounded-md bg-indigo-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-800 disabled:opacity-50"
+              >
+                {saving ? "Saving…" : "Save template"}
+              </button>
+              {saved && <span className="text-xs text-emerald-600 dark:text-emerald-400">Saved.</span>}
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -585,11 +682,14 @@ export default function TeamUsagePage() {
 
       <RoleManagementPanel />
 
+      <OutreachSettingsPanel />
+
       <IntegrationsPanel />
 
       {isAdmin && (
         <p className="text-xs text-zinc-400">
-          The usage/performance and revenue data above, and the Accounts &amp; roles section, are all admin-only.
+          The usage/performance and revenue data above, and the Accounts &amp; roles and Outreach follow-ups
+          sections, are all admin-only.
         </p>
       )}
     </div>
