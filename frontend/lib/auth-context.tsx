@@ -36,11 +36,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .catch((e) => {
         setUser(null);
         setStatus("anon");
-        // /share/[token] is the one route meant for a logged-out visitor
-        // (see AppShell's routing comment) — must match that exemption
-        // exactly, or an anonymous client following a share link gets
-        // bounced to /login instead of seeing the public status page.
-        const isPublicRoute = pathname === "/login" || pathname.startsWith("/share/");
+        // /reset-password and /share/[token] are routes meant for a
+        // logged-out visitor (see AppShell's routing comment) — must
+        // match those exemptions exactly, or an anonymous visitor
+        // following a reset or share link gets bounced to /login before
+        // ever seeing the page the link pointed at.
+        const isPublicRoute =
+          pathname === "/login" || pathname === "/reset-password" || pathname.startsWith("/share/");
         if (!isPublicRoute && e instanceof ApiError && e.status === 401) {
           router.replace("/login");
         }

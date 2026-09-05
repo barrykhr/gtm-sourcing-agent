@@ -67,6 +67,10 @@ export const signup = (email: string, password: string, signupCode?: string) =>
   post<AuthUser>("/auth/signup", { email, password, signup_code: signupCode ?? null });
 export const login = (email: string, password: string) => post<AuthUser>("/auth/login", { email, password });
 export const googleLogin = (credential: string) => post<AuthUser>("/auth/google", { credential });
+export const forgotPassword = (email: string) =>
+  post<{ status: string }>("/auth/forgot-password", { email });
+export const resetPassword = (token: string, newPassword: string) =>
+  post<{ status: string }>("/auth/reset-password", { token, new_password: newPassword });
 
 export type TeamMember = { id: string; email: string; role: UserRole; created_at: string };
 export const listUsers = () => get<TeamMember[]>("/users");

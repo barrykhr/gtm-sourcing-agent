@@ -60,7 +60,10 @@ logger = logging.getLogger(__name__)
 # so a route can never be accidentally left unguarded. See auth.py's
 # module docstring for why this is plain session auth, not OAuth/SSO.
 
-_PUBLIC_PATHS = {"/health", "/auth/signup", "/auth/login", "/auth/status", "/auth/google"}
+_PUBLIC_PATHS = {
+    "/health", "/auth/signup", "/auth/login", "/auth/status", "/auth/google",
+    "/auth/forgot-password", "/auth/reset-password",
+}
 _COOKIE_SECURE = os.environ.get("GTM_COOKIE_SECURE", "false").lower() == "true"
 # SameSite=Lax (the default) is right for local dev, where the frontend
 # and API share a host. A split-host deployment (frontend and API on
@@ -138,6 +141,11 @@ def _notify_admins_of_new_signup(new_user: dict[str, Any]) -> None:
 # only thing preflight relies on.
 app.add_middleware(AuthMiddleware)
 
+# Where the "forgot password" email's reset link points — the deployed
+# frontend's own URL, since the backend has no page of its own for a
+# user to land on. Defaults to the local dev frontend.
+_FRONTEND_URL = os.environ.get("GTM_FRONTEND_URL", "http://localhost:3000").rstrip("/")
+
 _allowed_origins = os.environ.get("GTM_CORS_ORIGINS", "http://localhost:3000").split(",")
 app.add_middleware(
     CORSMiddleware,
@@ -161,6 +169,15 @@ class LoginRequest(BaseModel):
 
 class GoogleAuthRequest(BaseModel):
     credential: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
 
 
 @app.get("/auth/status")
@@ -199,6 +216,32 @@ def google_auth(body: GoogleAuthRequest, response: Response) -> dict[str, Any]:
     if is_new_account:
         _notify_admins_of_new_signup(user)
     return user
+
+
+@app.post("/auth/forgot-password")
+def forgot_password(body: ForgotPasswordRequest) -> dict[str, str]:
+    # Always the same response regardless of whether the email matches
+    # an account — telling the caller which case happened would make
+    # this endpoint an email-enumeration oracle. The token/email dance
+    # (and whether anything gets sent at all) happens entirely below,
+    # invisible to the response.
+    token = auth.create_password_reset_token(body.email)
+    if token is not None:
+        reset_url = f"{_FRONTEND_URL}/reset-password?token={token}"
+        notifications.send_email(
+            [body.email],
+            "Reset your Talyn password",
+            "We received a request to reset your password. This link expires in 1 hour "
+            f"and can only be used once:\n\n{reset_url}\n\n"
+            "If you didn't request this, you can safely ignore this email — your password won't change.",
+        )
+    return {"status": "if an account exists for that email, we've sent a reset link"}
+
+
+@app.post("/auth/reset-password")
+def reset_password(body: ResetPasswordRequest) -> dict[str, str]:
+    _run_stage(auth.reset_password, body.token, body.new_password)
+    return {"status": "password reset — log in with your new password"}
 
 
 @app.post("/auth/logout")

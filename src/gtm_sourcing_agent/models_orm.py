@@ -220,6 +220,20 @@ class Session(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime)
 
 
+class PasswordResetToken(Base):
+    """A single-use, time-limited token behind the "forgot password"
+    email link (see auth.py's create_password_reset_token /
+    reset_password). Deleted the moment it's consumed or replaced by a
+    newer request for the same account — nothing needs the history."""
+
+    __tablename__ = "password_reset_tokens"
+
+    token: Mapped[str] = mapped_column(String, primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+
+
 class ActivityLog(Base):
     """Who did what, when — Phase 8's multi-account accounts share one
     workspace (Phase 8, docs/product-plan.md), so once more than one

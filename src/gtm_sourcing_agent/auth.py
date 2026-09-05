@@ -19,13 +19,14 @@ import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from . import db
-from .models_orm import Session, User
+from .models_orm import PasswordResetToken, Session, User
 
 SESSION_COOKIE_NAME = "gtm_session"
 SESSION_TTL = timedelta(days=14)
+PASSWORD_RESET_TTL = timedelta(hours=1)
 _PBKDF2_ITERATIONS = 600_000
 
 # Role/permission foundation (production-readiness phase). Only "admin"
@@ -86,6 +87,59 @@ def verify_credentials(email: str, password: str) -> dict[str, Any] | None:
         if _hash_password(password, user.password_salt) != user.password_hash:
             return None
         return {"id": user.id, "email": user.email, "role": user.role}
+
+
+def create_password_reset_token(email: str) -> str | None:
+    """Returns a fresh single-use token if `email` matches an account,
+    or None if it doesn't. Callers (api.py's /auth/forgot-password) must
+    never let that None-vs-token distinction leak into the HTTP
+    response — always the same generic "if an account exists..."
+    message either way, or the endpoint becomes an email-enumeration
+    oracle. Replaces any outstanding token for the account, so an old,
+    already-emailed link stops working the moment a new one is
+    requested."""
+    with db.get_session() as db_session:
+        user = db_session.scalars(select(User).where(User.email == email)).first()
+        if user is None:
+            return None
+        db_session.execute(delete(PasswordResetToken).where(PasswordResetToken.user_id == user.id))
+        token = secrets.token_urlsafe(32)
+        db_session.add(PasswordResetToken(
+            token=token, user_id=user.id, expires_at=datetime.now(UTC) + PASSWORD_RESET_TTL,
+        ))
+        db_session.commit()
+        return token
+
+
+def reset_password(token: str, new_password: str) -> None:
+    """Raises ValueError (mapped to 400 by the API layer) for an
+    unknown/expired token or a too-weak password. The token is single-
+    use — consumed here whether or not the rest of the request
+    succeeds — and every existing session for the account is
+    invalidated, so a password reset also logs the account out
+    everywhere, including a device an attacker might currently be
+    using."""
+    if len(new_password) < 8:
+        raise ValueError("password must be at least 8 characters")
+    with db.get_session() as db_session:
+        reset = db_session.get(PasswordResetToken, token)
+        if reset is None:
+            raise ValueError("invalid or expired reset link — request a new one")
+        expires_at = reset.expires_at.replace(tzinfo=UTC) if reset.expires_at.tzinfo is None else reset.expires_at
+        user_id = reset.user_id
+        db_session.delete(reset)
+        if expires_at < datetime.now(UTC):
+            db_session.commit()
+            raise ValueError("invalid or expired reset link — request a new one")
+        user = db_session.get(User, user_id)
+        if user is None:
+            db_session.commit()
+            raise ValueError("invalid or expired reset link — request a new one")
+        salt = secrets.token_hex(16)
+        user.password_hash = _hash_password(new_password, salt)
+        user.password_salt = salt
+        db_session.execute(delete(Session).where(Session.user_id == user.id))
+        db_session.commit()
 
 
 def set_user_role(user_id: str, role: str) -> dict[str, Any]:

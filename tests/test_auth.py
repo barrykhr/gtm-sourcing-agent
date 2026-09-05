@@ -290,3 +290,148 @@ def test_returning_google_login_does_not_renotify(isolated_db, monkeypatch):
     client.post("/auth/logout")
     client.post("/auth/google", json={"credential": "token-2"})
     assert len(calls) == 1  # same account logging back in -> no second notification
+
+
+def _capture_sent_emails(monkeypatch):
+    """Patches notifications.send_email (used directly by api.py's
+    /auth/forgot-password) to record calls instead of touching a real
+    SMTP server, mirroring the notify_admins_of_new_signup fakes above."""
+    from gtm_sourcing_agent import notifications
+
+    calls = []
+    monkeypatch.setattr(notifications, "send_email", lambda *a, **k: calls.append(a) or True)
+    return calls
+
+
+def test_forgot_password_response_is_identical_for_known_and_unknown_email(isolated_db, monkeypatch):
+    _capture_sent_emails(monkeypatch)
+    client.post("/auth/signup", json={"email": "r@example.com", "password": "hunter22"})
+    client.post("/auth/logout")
+
+    known = client.post("/auth/forgot-password", json={"email": "r@example.com"})
+    unknown = client.post("/auth/forgot-password", json={"email": "nobody@example.com"})
+
+    assert known.status_code == unknown.status_code == 200
+    assert known.json() == unknown.json()
+
+
+def test_forgot_password_only_emails_for_a_known_account(isolated_db, monkeypatch):
+    calls = _capture_sent_emails(monkeypatch)
+    client.post("/auth/signup", json={"email": "r@example.com", "password": "hunter22"})
+    client.post("/auth/logout")
+
+    client.post("/auth/forgot-password", json={"email": "nobody@example.com"})
+    assert calls == []
+
+    client.post("/auth/forgot-password", json={"email": "r@example.com"})
+    assert len(calls) == 1
+    to_addresses, subject, body = calls[0]
+    assert to_addresses == ["r@example.com"]
+    assert "reset" in subject.lower()
+    assert "/reset-password?token=" in body
+
+
+def test_reset_password_with_unknown_token_is_400(isolated_db):
+    resp = client.post("/auth/reset-password", json={"token": "not-a-real-token", "new_password": "newpassword1"})
+    assert resp.status_code == 400
+    assert "invalid or expired" in resp.json()["detail"]
+
+
+def test_reset_password_rejects_short_password(isolated_db, monkeypatch):
+    calls = _capture_sent_emails(monkeypatch)
+    client.post("/auth/signup", json={"email": "r@example.com", "password": "hunter22"})
+    client.post("/auth/logout")
+    client.post("/auth/forgot-password", json={"email": "r@example.com"})
+    token = calls[0][2].split("token=")[1].split("\n")[0].strip()
+
+    resp = client.post("/auth/reset-password", json={"token": token, "new_password": "short"})
+    assert resp.status_code == 400
+    assert "8 characters" in resp.json()["detail"]
+
+
+def test_reset_password_changes_the_password_and_logs_in_with_the_new_one(isolated_db, monkeypatch):
+    calls = _capture_sent_emails(monkeypatch)
+    client.post("/auth/signup", json={"email": "r@example.com", "password": "hunter22"})
+    client.post("/auth/logout")
+    client.post("/auth/forgot-password", json={"email": "r@example.com"})
+    token = calls[0][2].split("token=")[1].split("\n")[0].strip()
+
+    resp = client.post("/auth/reset-password", json={"token": token, "new_password": "brandnewpw"})
+    assert resp.status_code == 200, resp.text
+
+    assert client.post("/auth/login", json={"email": "r@example.com", "password": "hunter22"}).status_code == 401
+    assert client.post("/auth/login", json={"email": "r@example.com", "password": "brandnewpw"}).status_code == 200
+
+
+def test_reset_password_token_is_single_use(isolated_db, monkeypatch):
+    calls = _capture_sent_emails(monkeypatch)
+    client.post("/auth/signup", json={"email": "r@example.com", "password": "hunter22"})
+    client.post("/auth/logout")
+    client.post("/auth/forgot-password", json={"email": "r@example.com"})
+    token = calls[0][2].split("token=")[1].split("\n")[0].strip()
+
+    first = client.post("/auth/reset-password", json={"token": token, "new_password": "brandnewpw"})
+    assert first.status_code == 200, first.text
+
+    second = client.post("/auth/reset-password", json={"token": token, "new_password": "anotherpw1"})
+    assert second.status_code == 400
+    assert "invalid or expired" in second.json()["detail"]
+
+
+def test_reset_password_replaces_any_outstanding_token_for_the_account(isolated_db, monkeypatch):
+    calls = _capture_sent_emails(monkeypatch)
+    client.post("/auth/signup", json={"email": "r@example.com", "password": "hunter22"})
+    client.post("/auth/logout")
+
+    client.post("/auth/forgot-password", json={"email": "r@example.com"})
+    old_token = calls[0][2].split("token=")[1].split("\n")[0].strip()
+    client.post("/auth/forgot-password", json={"email": "r@example.com"})
+    new_token = calls[1][2].split("token=")[1].split("\n")[0].strip()
+    assert old_token != new_token
+
+    stale = client.post("/auth/reset-password", json={"token": old_token, "new_password": "brandnewpw"})
+    assert stale.status_code == 400
+
+    fresh = client.post("/auth/reset-password", json={"token": new_token, "new_password": "brandnewpw"})
+    assert fresh.status_code == 200, fresh.text
+
+
+def test_reset_password_invalidates_existing_sessions(isolated_db, monkeypatch):
+    calls = _capture_sent_emails(monkeypatch)
+    client.post("/auth/signup", json={"email": "r@example.com", "password": "hunter22"})
+    # This client instance's cookie jar now holds a live session for the
+    # account — reset_password must kill it even though the reset itself
+    # happens over a separate, cookie-less request (as it would in
+    # reality: a different browser/tab that clicked the email link).
+    assert client.get("/auth/me").status_code == 200
+
+    client.post("/auth/forgot-password", json={"email": "r@example.com"})
+    token = calls[0][2].split("token=")[1].split("\n")[0].strip()
+    resp = client.post("/auth/reset-password", json={"token": token, "new_password": "brandnewpw"})
+    assert resp.status_code == 200, resp.text
+
+    assert client.get("/auth/me").status_code == 401
+
+
+def test_expired_reset_token_is_rejected(isolated_db):
+    from datetime import UTC, datetime, timedelta
+
+    from gtm_sourcing_agent import auth as auth_module, db
+    from gtm_sourcing_agent.models_orm import PasswordResetToken
+
+    client.post("/auth/signup", json={"email": "r@example.com", "password": "hunter22"})
+    client.post("/auth/logout")
+    token = auth_module.create_password_reset_token("r@example.com")
+    assert token is not None
+
+    # Directly age the token in the DB to simulate the TTL having
+    # elapsed, rather than waiting an hour or monkeypatching a constant
+    # that's only read at token-creation time.
+    with db.get_session() as db_session:
+        reset = db_session.get(PasswordResetToken, token)
+        reset.expires_at = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=1)
+        db_session.commit()
+
+    resp = client.post("/auth/reset-password", json={"token": token, "new_password": "brandnewpw"})
+    assert resp.status_code == 400
+    assert "invalid or expired" in resp.json()["detail"]
