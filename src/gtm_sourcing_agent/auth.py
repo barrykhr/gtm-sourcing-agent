@@ -187,6 +187,7 @@ def google_login(credential: str) -> dict[str, Any]:
         raise ValueError(f"'{email}' is not on the allowed domain for this workspace")
     with db.get_session() as db_session:
         user = db_session.scalars(select(User).where(User.email == email)).first()
+        is_new_account = user is None
         if user is None:
             is_first_account = db_session.scalars(select(User.id).limit(1)).first() is None
             salt = secrets.token_hex(16)
@@ -196,4 +197,8 @@ def google_login(credential: str) -> dict[str, Any]:
             )
             db_session.add(user)
             db_session.commit()
-        return {"id": user.id, "email": user.email, "role": user.role}
+        # "_is_new_account" is an internal-only marker for api.py's route
+        # to decide whether to fire a new-signup notification — it's
+        # popped before the dict ever becomes an HTTP response body, so
+        # it never appears on the wire alongside id/email/role.
+        return {"id": user.id, "email": user.email, "role": user.role, "_is_new_account": is_new_account}

@@ -614,6 +614,22 @@ def test_team_usage_route(isolated_db, fake_generate):
     assert recruiter["total_actions"] >= 1
 
 
+def test_team_usage_velocity_and_revenue_are_admin_only(isolated_db):
+    # isolated_db's own account ("recruiter@example.com") is the first
+    # account in this DB, so it's actually admin — confirm that still
+    # works, then confirm a genuine second (recruiter) account is blocked.
+    assert client.get("/team/usage").status_code == 200
+    assert client.get("/team/velocity").status_code == 200
+    assert client.get("/revenue/by-recruiter").status_code == 200
+
+    client.post("/auth/logout")
+    client.post("/auth/signup", json={"email": "second-recruiter@example.com", "password": "test-password-123"})
+
+    assert client.get("/team/usage").status_code == 403
+    assert client.get("/team/velocity").status_code == 403
+    assert client.get("/revenue/by-recruiter").status_code == 403
+
+
 def test_team_velocity_route(isolated_db, fake_generate):
     from gtm_sourcing_agent import db_storage
     from gtm_sourcing_agent.models import Candidate, CandidatePrioritization

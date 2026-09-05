@@ -21,7 +21,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from . import auth, db_storage, file_storage, orchestrator, pipeline, resume_extraction, task_queue, webhooks
+from . import auth, db_storage, file_storage, notifications, orchestrator, pipeline, resume_extraction, task_queue, webhooks
 from .models.funnel import ForecastAssumptions
 from .models.interview_questions import InterviewQuestionHistory
 from .stages import calibration as calibration_stage
@@ -118,6 +118,19 @@ def _set_session_cookie(response: Response, token: str) -> None:
     )
 
 
+def _notify_admins_of_new_signup(new_user: dict[str, Any]) -> None:
+    """Best-effort — see notifications.py. Skipped entirely for the
+    first-ever account (its own role is "admin"; there's no one else to
+    tell yet). Never raises, never blocks the signup response on it."""
+    if new_user["role"] == "admin":
+        return
+    admin_emails = [u["email"] for u in auth.list_users() if u["role"] == "admin"]
+    try:
+        notifications.notify_admins_of_new_signup(new_user["email"], new_user["role"], admin_emails)
+    except Exception:
+        logger.exception("failed to notify admins of new signup: %s", new_user["email"])
+
+
 # Registration order matters: Starlette makes the *last*-added middleware
 # outermost, so CORS (added second, below) wraps AuthMiddleware and
 # handles preflight OPTIONS requests before anything else runs — the
@@ -163,6 +176,7 @@ def signup(body: SignupRequest, response: Response) -> dict[str, Any]:
     user = _run_stage(auth.create_user, body.email, body.password, body.signup_code)
     token = auth.create_session(user["id"])
     _set_session_cookie(response, token)
+    _notify_admins_of_new_signup(user)
     return user
 
 
@@ -179,8 +193,11 @@ def login(body: LoginRequest, response: Response) -> dict[str, Any]:
 @app.post("/auth/google")
 def google_auth(body: GoogleAuthRequest, response: Response) -> dict[str, Any]:
     user = _run_stage(auth.google_login, body.credential)
+    is_new_account = user.pop("_is_new_account")
     token = auth.create_session(user["id"])
     _set_session_cookie(response, token)
+    if is_new_account:
+        _notify_admins_of_new_signup(user)
     return user
 
 
@@ -506,7 +523,11 @@ def revenue_overview() -> dict[str, Any]:
 
 
 @app.get("/revenue/by-recruiter")
-def revenue_by_recruiter() -> list[dict[str, Any]]:
+def revenue_by_recruiter(_admin: dict[str, Any] = Depends(require_role("admin"))) -> list[dict[str, Any]]:
+    # Per-recruiter breakdown — same "who has access to what" category as
+    # /team/usage and /team/velocity, admin-only for the same reason.
+    # /revenue/overview (the dashboard's workspace-wide total) stays
+    # visible to everyone — it has no per-person breakdown at all.
     return db_storage.recruiter_revenue()
 
 
@@ -602,15 +623,16 @@ def analytics_attention() -> dict[str, Any]:
 
 
 @app.get("/team/usage")
-def team_usage() -> dict[str, Any]:
-    """Every authenticated user shares one workspace (Phase 8), so this
-    is visible to any recruiter, not gated to an admin role — there is no
-    admin/recruiter distinction anywhere else in the app either."""
+def team_usage(_admin: dict[str, Any] = Depends(require_role("admin"))) -> dict[str, Any]:
+    """Per-recruiter activity and workload — who has an account, when
+    they joined, what they've done. Admin-only: this is the same class
+    of "who has access, and what are they doing" information as the
+    Accounts & roles panel, not workspace-wide product data."""
     return db_storage.team_usage()
 
 
 @app.get("/team/velocity")
-def team_velocity() -> dict[str, Any]:
+def team_velocity(_admin: dict[str, Any] = Depends(require_role("admin"))) -> dict[str, Any]:
     """Same visibility as /team/usage — is the effort converting, and
     where does it stall, per role and per recruiter."""
     return db_storage.velocity_report()

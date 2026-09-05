@@ -168,6 +168,12 @@ function StageDaysCell({ avgDaysInStage }: { avgDaysInStage: Record<string, numb
 // via require_role("admin"); this component never assumes the frontend
 // check is the actual boundary). A recruiter simply doesn't see this
 // section; they'd still get a 403 if they somehow called the API.
+const NEW_ACCOUNT_WINDOW_MS = 48 * 60 * 60 * 1000;
+
+function isRecentlyJoined(createdAt: string): boolean {
+  return Date.now() - new Date(createdAt).getTime() < NEW_ACCOUNT_WINDOW_MS;
+}
+
 function RoleManagementPanel() {
   const { user } = useAuth();
   const [members, setMembers] = useState<TeamMember[] | null>(null);
@@ -216,7 +222,15 @@ function RoleManagementPanel() {
             <tbody>
               {members.map((m) => (
                 <tr key={m.id} className="border-b border-zinc-100 last:border-0 dark:border-zinc-900">
-                  <td className="px-4 py-2.5 font-medium">{m.email}{m.id === user?.id && <span className="ml-1.5 text-xs font-normal text-zinc-400">(you)</span>}</td>
+                  <td className="px-4 py-2.5 font-medium">
+                    {m.email}
+                    {m.id === user?.id && <span className="ml-1.5 text-xs font-normal text-zinc-400">(you)</span>}
+                    {isRecentlyJoined(m.created_at) && (
+                      <span className="ml-1.5 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400">
+                        New
+                      </span>
+                    )}
+                  </td>
                   <td className="px-4 py-2.5 capitalize">{m.role}</td>
                   <td className="px-4 py-2.5">
                     {m.id !== user?.id && (
@@ -296,12 +310,15 @@ function IntegrationsPanel() {
 }
 
 export default function TeamUsagePage() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [usage, setUsage] = useState<TeamUsage | null>(null);
   const [velocity, setVelocity] = useState<VelocityReport | null>(null);
   const [revenueByRecruiter, setRevenueByRecruiter] = useState<RecruiterRevenue[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!isAdmin) return;
     getTeamUsage()
       .then(setUsage)
       .catch((e) => setError(e instanceof ApiError ? e.message : "Could not reach the API."));
@@ -311,7 +328,7 @@ export default function TeamUsagePage() {
     getRevenueByRecruiter()
       .then(setRevenueByRecruiter)
       .catch(() => {}); // non-critical — revenue may not be priced on any roles yet
-  }, []);
+  }, [isAdmin]);
 
   return (
     <div className="flex flex-col gap-8">
@@ -323,13 +340,19 @@ export default function TeamUsagePage() {
         </p>
       </div>
 
-      {error && (
+      {!isAdmin && (
+        <p className="text-sm text-zinc-500">
+          Activity, revenue, and account data on this page are visible to admins only.
+        </p>
+      )}
+
+      {isAdmin && error && (
         <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-400">
           {error}
         </div>
       )}
 
-      {usage === null && !error ? (
+      {isAdmin && usage === null && !error ? (
         <p className="text-sm text-zinc-500">Loading…</p>
       ) : usage ? (
         <>
@@ -557,16 +580,18 @@ export default function TeamUsagePage() {
               )}
             </>
           )}
-
-          <RoleManagementPanel />
-
-          <IntegrationsPanel />
-
-          <p className="text-xs text-zinc-400">
-            The usage/performance data above is visible to every account. Only the Accounts &amp; roles section is admin-only.
-          </p>
         </>
       ) : null}
+
+      <RoleManagementPanel />
+
+      <IntegrationsPanel />
+
+      {isAdmin && (
+        <p className="text-xs text-zinc-400">
+          The usage/performance and revenue data above, and the Accounts &amp; roles section, are all admin-only.
+        </p>
+      )}
     </div>
   );
 }

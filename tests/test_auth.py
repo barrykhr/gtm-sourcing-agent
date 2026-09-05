@@ -231,3 +231,62 @@ def test_client_and_interviewer_are_not_assignable_yet(isolated_db):
     resp = client.patch(f"/users/{admin_id}/role", json={"role": "client"})
     assert resp.status_code == 400
     assert "not an assignable role" in resp.json()["detail"]
+
+
+def test_first_account_signup_does_not_notify_anyone(isolated_db, monkeypatch):
+    from gtm_sourcing_agent import notifications
+
+    calls = []
+    monkeypatch.setattr(notifications, "notify_admins_of_new_signup", lambda *a, **k: calls.append(a) or True)
+    client.post("/auth/signup", json={"email": "admin@example.com", "password": "hunter22"})
+    assert calls == []  # first account IS the admin — no one else to notify
+
+
+def test_second_account_signup_notifies_the_existing_admin(isolated_db, monkeypatch):
+    from gtm_sourcing_agent import notifications
+
+    calls = []
+    monkeypatch.setattr(notifications, "notify_admins_of_new_signup", lambda *a, **k: calls.append(a) or True)
+    client.post("/auth/signup", json={"email": "admin@example.com", "password": "hunter22"})
+    client.post("/auth/logout")
+    client.post("/auth/signup", json={"email": "recruiter@example.com", "password": "hunter22"})
+
+    assert len(calls) == 1
+    new_email, new_role, admin_emails = calls[0]
+    assert new_email == "recruiter@example.com"
+    assert new_role == "recruiter"
+    assert admin_emails == ["admin@example.com"]
+
+
+def test_signup_notification_failure_does_not_break_signup(isolated_db, monkeypatch):
+    from gtm_sourcing_agent import notifications
+
+    client.post("/auth/signup", json={"email": "admin@example.com", "password": "hunter22"})
+    client.post("/auth/logout")
+
+    def _boom(*a, **k):
+        raise RuntimeError("smtp exploded")
+
+    monkeypatch.setattr(notifications, "notify_admins_of_new_signup", _boom)
+    resp = client.post("/auth/signup", json={"email": "recruiter@example.com", "password": "hunter22"})
+    assert resp.status_code == 200, resp.text
+
+
+def test_returning_google_login_does_not_renotify(isolated_db, monkeypatch):
+    from gtm_sourcing_agent import auth as auth_module, notifications
+
+    client.post("/auth/signup", json={"email": "admin@example.com", "password": "hunter22"})
+    client.post("/auth/logout")
+
+    monkeypatch.setattr(auth_module, "GOOGLE_CLIENT_ID", "test-client-id")
+    monkeypatch.setattr(auth_module, "_verify_google_id_token", lambda credential: "recruiter@example.com")
+
+    calls = []
+    monkeypatch.setattr(notifications, "notify_admins_of_new_signup", lambda *a, **k: calls.append(a) or True)
+
+    client.post("/auth/google", json={"credential": "token-1"})
+    assert len(calls) == 1  # first Google sign-in creates the account -> notify
+
+    client.post("/auth/logout")
+    client.post("/auth/google", json={"credential": "token-2"})
+    assert len(calls) == 1  # same account logging back in -> no second notification
