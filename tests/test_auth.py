@@ -331,6 +331,100 @@ def test_forgot_password_only_emails_for_a_known_account(isolated_db, monkeypatc
     assert "/reset-password?token=" in body
 
 
+def test_non_admin_cannot_call_test_email(isolated_db):
+    client.post("/auth/signup", json={"email": "admin@example.com", "password": "hunter22"})
+    client.post("/auth/logout")
+    client.post("/auth/signup", json={"email": "recruiter@example.com", "password": "hunter22"})
+
+    resp = client.post("/admin/test-email", json={"to": "recruiter@example.com"})
+    assert resp.status_code == 403
+
+
+def test_admin_test_email_reports_missing_env_vars(isolated_db, monkeypatch):
+    # No SMTP_* env vars are set in the test environment, so this should
+    # report exactly which ones are missing -- the actual bug hit in
+    # production (a misnamed SMTP_FROM_ADDRESS) rather than a generic
+    # failure.
+    for name in ("SMTP_HOST", "SMTP_PORT", "SMTP_USERNAME", "SMTP_PASSWORD", "SMTP_FROM_ADDRESS"):
+        monkeypatch.delenv(name, raising=False)
+    client.post("/auth/signup", json={"email": "admin@example.com", "password": "hunter22"})
+
+    resp = client.post("/admin/test-email", json={"to": "admin@example.com"})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["sent"] is False
+    assert "SMTP_FROM_ADDRESS" in body["error"]
+
+
+def test_admin_test_email_reports_real_smtp_exception(isolated_db, monkeypatch):
+    from gtm_sourcing_agent import notifications
+
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+    monkeypatch.setenv("SMTP_USERNAME", "user@example.com")
+    monkeypatch.setenv("SMTP_PASSWORD", "wrong-password")
+    monkeypatch.setenv("SMTP_FROM_ADDRESS", "user@example.com")
+
+    class _FakeSMTP:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def starttls(self):
+            pass
+
+        def login(self, *a, **k):
+            raise notifications.smtplib.SMTPAuthenticationError(535, b"bad credentials")
+
+    monkeypatch.setattr(notifications.smtplib, "SMTP", _FakeSMTP)
+    client.post("/auth/signup", json={"email": "admin@example.com", "password": "hunter22"})
+
+    resp = client.post("/admin/test-email", json={"to": "admin@example.com"})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["sent"] is False
+    assert "SMTPAuthenticationError" in body["error"]
+
+
+def test_admin_test_email_reports_success(isolated_db, monkeypatch):
+    from gtm_sourcing_agent import notifications
+
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+    monkeypatch.setenv("SMTP_USERNAME", "user@example.com")
+    monkeypatch.setenv("SMTP_PASSWORD", "correct-password")
+    monkeypatch.setenv("SMTP_FROM_ADDRESS", "user@example.com")
+
+    class _FakeSMTP:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def starttls(self):
+            pass
+
+        def login(self, *a, **k):
+            pass
+
+        def sendmail(self, *a, **k):
+            pass
+
+    monkeypatch.setattr(notifications.smtplib, "SMTP", _FakeSMTP)
+    client.post("/auth/signup", json={"email": "admin@example.com", "password": "hunter22"})
+
+    resp = client.post("/admin/test-email", json={"to": "admin@example.com"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"sent": True, "error": None}
+
+
 def test_reset_password_with_unknown_token_is_400(isolated_db):
     resp = client.post("/auth/reset-password", json={"token": "not-a-real-token", "new_password": "newpassword1"})
     assert resp.status_code == 400

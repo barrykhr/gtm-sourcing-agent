@@ -283,6 +283,22 @@ def set_user_role(user_id: str, body: UserRoleRequest, _admin: dict[str, Any] = 
     return _run_stage(auth.set_user_role, user_id, body.role)
 
 
+class TestEmailRequest(BaseModel):
+    to: str
+
+
+@app.post("/admin/test-email")
+def test_email(
+    body: TestEmailRequest, _admin: dict[str, Any] = Depends(require_role("admin"))
+) -> dict[str, str | bool | None]:
+    # Diagnostic-only: attempts a real SMTP send and reports the actual
+    # outcome (including the raw exception, if any) rather than the
+    # always-succeeds response forgot-password gives. See
+    # notifications.send_test_email's docstring for why this needs to
+    # exist as its own thing.
+    return notifications.send_test_email(body.to)
+
+
 def _run_stage(fn, *args, **kwargs) -> Any:
     """Every stage call goes through this so a missing checkpoint
     (ValueError) and an LLM-call failure (RuntimeError) map to distinct,

@@ -61,6 +61,42 @@ def send_email(to_addresses: list[str], subject: str, body: str) -> bool:
     return True
 
 
+def send_test_email(to_address: str) -> dict[str, str | bool | None]:
+    """Admin diagnostic (POST /admin/test-email): attempts a real SMTP
+    send and reports exactly what happened, error text included. Unlike
+    send_email above — which deliberately never raises or explains
+    itself, since a broken mail server must never break the signup or
+    password-reset flow it rides along with — this exists purely so an
+    admin can see *why* delivery is failing without needing server log
+    access (which, on Render's free tier, may not even be available)."""
+    if not is_configured():
+        missing = [
+            name
+            for name, val in (
+                (ENV_HOST, os.environ.get(ENV_HOST)),
+                (ENV_USERNAME, os.environ.get(ENV_USERNAME)),
+                (ENV_PASSWORD, os.environ.get(ENV_PASSWORD)),
+                (ENV_FROM_ADDRESS, os.environ.get(ENV_FROM_ADDRESS)),
+            )
+            if not val
+        ]
+        return {"sent": False, "error": f"not configured — missing env var(s): {', '.join(missing)}"}
+    from_address = os.environ[ENV_FROM_ADDRESS]
+    message = MIMEText("This is a test email sent from Talyn's admin SMTP diagnostic tool.")
+    message["Subject"] = "Talyn SMTP test"
+    message["From"] = from_address
+    message["To"] = to_address
+    port = int(os.environ.get(ENV_PORT, "587"))
+    try:
+        with smtplib.SMTP(os.environ[ENV_HOST], port, timeout=10) as server:
+            server.starttls()
+            server.login(os.environ[ENV_USERNAME], os.environ[ENV_PASSWORD])
+            server.sendmail(from_address, [to_address], message.as_string())
+    except Exception as e:
+        return {"sent": False, "error": f"{type(e).__name__}: {e}"}
+    return {"sent": True, "error": None}
+
+
 def notify_admins_of_new_signup(new_user_email: str, new_user_role: str, admin_emails: list[str]) -> bool:
     """Called once per newly created account (never for a returning
     Google-login or a plain password login) — see api.py's signup
