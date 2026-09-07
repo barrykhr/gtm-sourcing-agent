@@ -65,6 +65,15 @@ def test_health(isolated_db):
     assert client.get("/health").json() == {"status": "ok"}
 
 
+def test_health_accepts_head(isolated_db):
+    # Render's own health-check prober (and most uptime monitors) use
+    # HEAD, not GET, to avoid pulling a body. A GET-only route 405s
+    # every HEAD probe, which reads as "unhealthy" and can trigger
+    # repeated restarts — this regression-tests the fix, not just the
+    # happy path GET already covers above.
+    assert client.head("/health").status_code == 200
+
+
 def test_create_job_and_list(isolated_db):
     resp = client.post("/jobs", json={"title": "Enterprise AE — Acme", "role_family": "sales"})
     assert resp.status_code == 200, resp.text

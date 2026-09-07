@@ -482,8 +482,13 @@ class ForecastRequest(BaseModel):
 # ── health ───────────────────────────────────────────────────────────────
 
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 def health() -> dict[str, str]:
+    # HEAD alongside GET: Render's own health-check prober (and most
+    # uptime monitors) use HEAD by default. GET-only here made every
+    # HEAD probe 405, which reads as "unhealthy" to anything watching
+    # for a 2xx — a real, observed cause of the service looking
+    # perpetually freshly-restarted in the logs.
     return {"status": "ok"}
 
 
