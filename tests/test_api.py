@@ -74,6 +74,19 @@ def test_health_accepts_head(isolated_db):
     assert client.head("/health").status_code == 200
 
 
+def test_root_is_public_and_accepts_head(isolated_db):
+    # Platform health probes (Render's included, observed live) default
+    # to hitting "/" rather than /health when no custom health-check
+    # path is configured. Root has no route of its own otherwise, so
+    # without this it fell through to AuthMiddleware and 401'd every
+    # probe -- both methods need to work, unauthenticated (isolated_db
+    # leaves a session cookie set, so this clears it first), same as
+    # /health.
+    client.cookies.clear()
+    assert client.get("/").status_code == 200
+    assert client.head("/").status_code == 200
+
+
 def test_create_job_and_list(isolated_db):
     resp = client.post("/jobs", json={"title": "Enterprise AE — Acme", "role_family": "sales"})
     assert resp.status_code == 200, resp.text

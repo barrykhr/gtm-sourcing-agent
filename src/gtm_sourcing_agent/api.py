@@ -70,7 +70,7 @@ followup_sweep.start()
 # module docstring for why this is plain session auth, not OAuth/SSO.
 
 _PUBLIC_PATHS = {
-    "/health", "/auth/signup", "/auth/login", "/auth/status", "/auth/google",
+    "/", "/health", "/auth/signup", "/auth/login", "/auth/status", "/auth/google",
     "/auth/forgot-password", "/auth/reset-password",
 }
 _COOKIE_SECURE = os.environ.get("GTM_COOKIE_SECURE", "false").lower() == "true"
@@ -490,6 +490,17 @@ def health() -> dict[str, str]:
     # for a 2xx — a real, observed cause of the service looking
     # perpetually freshly-restarted in the logs.
     return {"status": "ok"}
+
+
+@app.api_route("/", methods=["GET", "HEAD"])
+def root() -> dict[str, str]:
+    # This is a backend-only API with no page of its own at "/" — but
+    # platform health probes (Render's included, observed live) default
+    # to hitting root rather than /health when no custom health-check
+    # path is configured. Without this, root fell through to
+    # AuthMiddleware and 401'd every probe. Public (see _PUBLIC_PATHS),
+    # same category as /health.
+    return {"status": "ok", "service": "Talyn API"}
 
 
 # ── jobs ─────────────────────────────────────────────────────────────────
