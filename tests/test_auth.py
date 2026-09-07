@@ -331,6 +331,32 @@ def test_forgot_password_only_emails_for_a_known_account(isolated_db, monkeypatc
     assert "/reset-password?token=" in body
 
 
+def test_forgot_password_routes_to_override_recipient_when_set(isolated_db, monkeypatch):
+    calls = _capture_sent_emails(monkeypatch)
+    monkeypatch.setenv("FORGOT_PASSWORD_OVERRIDE_RECIPIENT", "admin-catchall@example.com")
+    client.post("/auth/signup", json={"email": "r@example.com", "password": "hunter22"})
+    client.post("/auth/logout")
+
+    client.post("/auth/forgot-password", json={"email": "r@example.com"})
+    assert len(calls) == 1
+    to_addresses, _subject, body = calls[0]
+    assert to_addresses == ["admin-catchall@example.com"]
+    assert "Password reset requested for account: r@example.com" in body
+
+
+def test_forgot_password_sends_to_requesting_email_when_override_unset(isolated_db, monkeypatch):
+    calls = _capture_sent_emails(monkeypatch)
+    monkeypatch.delenv("FORGOT_PASSWORD_OVERRIDE_RECIPIENT", raising=False)
+    client.post("/auth/signup", json={"email": "r@example.com", "password": "hunter22"})
+    client.post("/auth/logout")
+
+    client.post("/auth/forgot-password", json={"email": "r@example.com"})
+    assert len(calls) == 1
+    to_addresses, _subject, body = calls[0]
+    assert to_addresses == ["r@example.com"]
+    assert "Password reset requested for account:" not in body
+
+
 def test_non_admin_cannot_call_test_email(isolated_db):
     client.post("/auth/signup", json={"email": "admin@example.com", "password": "hunter22"})
     client.post("/auth/logout")

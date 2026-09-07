@@ -237,10 +237,20 @@ def forgot_password(body: ForgotPasswordRequest) -> dict[str, str]:
     token = auth.create_password_reset_token(body.email)
     if token is not None:
         reset_url = f"{_FRONTEND_URL}/reset-password?token={token}"
+        # Prototype-only override: route every reset link to one inbox
+        # you control instead of the requesting account's own address.
+        # Set FORGOT_PASSWORD_OVERRIDE_RECIPIENT on Render (Environment
+        # tab) to enable it. Leave it unset for real self-service delivery
+        # — this must not ship to a real multi-tenant launch, since it
+        # means account holders other than the override address never see
+        # their own reset link.
+        override_recipient = os.environ.get("FORGOT_PASSWORD_OVERRIDE_RECIPIENT", "").strip()
+        recipient = override_recipient or body.email
+        for_line = f"Password reset requested for account: {body.email}\n\n" if override_recipient else ""
         notifications.send_email(
-            [body.email],
+            [recipient],
             "Reset your Talyn password",
-            "We received a request to reset your password. This link expires in 1 hour "
+            f"{for_line}We received a request to reset your password. This link expires in 1 hour "
             f"and can only be used once:\n\n{reset_url}\n\n"
             "If you didn't request this, you can safely ignore this email — your password won't change.",
         )
