@@ -316,7 +316,14 @@ def test_forgot_password_response_is_identical_for_known_and_unknown_email(isola
 
 
 def test_forgot_password_only_emails_for_a_known_account(isolated_db, monkeypatch):
+    # Recipient routing (own address vs. the hardcoded/env override) is
+    # covered by the tests above -- this one is purely about whether an
+    # email goes out at all, so it disables the hardcoded default to
+    # keep that assertion independent of it.
+    from gtm_sourcing_agent import api as api_module
+
     calls = _capture_sent_emails(monkeypatch)
+    monkeypatch.setattr(api_module, "FORGOT_PASSWORD_HARDCODED_RECIPIENT", None)
     client.post("/auth/signup", json={"email": "r@example.com", "password": "hunter22"})
     client.post("/auth/logout")
 
@@ -344,9 +351,30 @@ def test_forgot_password_routes_to_override_recipient_when_set(isolated_db, monk
     assert "Password reset requested for account: r@example.com" in body
 
 
-def test_forgot_password_sends_to_requesting_email_when_override_unset(isolated_db, monkeypatch):
+def test_forgot_password_routes_to_hardcoded_recipient_by_default(isolated_db, monkeypatch):
+    # The env var is the ops-level override; the hardcoded constant is
+    # the code-level default that applies when it's unset -- this is
+    # today's actual out-of-the-box behavior, not just a config option.
+    from gtm_sourcing_agent import api as api_module
+
     calls = _capture_sent_emails(monkeypatch)
     monkeypatch.delenv("FORGOT_PASSWORD_OVERRIDE_RECIPIENT", raising=False)
+    client.post("/auth/signup", json={"email": "r@example.com", "password": "hunter22"})
+    client.post("/auth/logout")
+
+    client.post("/auth/forgot-password", json={"email": "r@example.com"})
+    assert len(calls) == 1
+    to_addresses, _subject, body = calls[0]
+    assert to_addresses == [api_module.FORGOT_PASSWORD_HARDCODED_RECIPIENT]
+    assert "Password reset requested for account: r@example.com" in body
+
+
+def test_forgot_password_sends_to_requesting_email_when_no_override_configured(isolated_db, monkeypatch):
+    from gtm_sourcing_agent import api as api_module
+
+    calls = _capture_sent_emails(monkeypatch)
+    monkeypatch.delenv("FORGOT_PASSWORD_OVERRIDE_RECIPIENT", raising=False)
+    monkeypatch.setattr(api_module, "FORGOT_PASSWORD_HARDCODED_RECIPIENT", None)
     client.post("/auth/signup", json={"email": "r@example.com", "password": "hunter22"})
     client.post("/auth/logout")
 

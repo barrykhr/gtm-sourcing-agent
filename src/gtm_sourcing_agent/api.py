@@ -227,6 +227,17 @@ def google_auth(body: GoogleAuthRequest, response: Response) -> dict[str, Any]:
     return user
 
 
+# Prototype-only: every "Forgot password?" reset link is sent HERE
+# instead of the requesting account's own email — edit this line to
+# change where it goes, or set it back to None to restore real
+# per-account delivery (required before this is used by anyone other
+# than you, since nobody else would ever see their own reset link).
+# FORGOT_PASSWORD_OVERRIDE_RECIPIENT on Render (Environment tab), if
+# set, takes precedence over this — leave that env var unset to let
+# this hardcoded value control it.
+FORGOT_PASSWORD_HARDCODED_RECIPIENT: str | None = "kumar12795@gmail.com"
+
+
 @app.post("/auth/forgot-password")
 def forgot_password(body: ForgotPasswordRequest) -> dict[str, str]:
     # Always the same response regardless of whether the email matches
@@ -237,14 +248,11 @@ def forgot_password(body: ForgotPasswordRequest) -> dict[str, str]:
     token = auth.create_password_reset_token(body.email)
     if token is not None:
         reset_url = f"{_FRONTEND_URL}/reset-password?token={token}"
-        # Prototype-only override: route every reset link to one inbox
-        # you control instead of the requesting account's own address.
-        # Set FORGOT_PASSWORD_OVERRIDE_RECIPIENT on Render (Environment
-        # tab) to enable it. Leave it unset for real self-service delivery
-        # — this must not ship to a real multi-tenant launch, since it
-        # means account holders other than the override address never see
-        # their own reset link.
-        override_recipient = os.environ.get("FORGOT_PASSWORD_OVERRIDE_RECIPIENT", "").strip()
+        override_recipient = (
+            os.environ.get("FORGOT_PASSWORD_OVERRIDE_RECIPIENT", "").strip()
+            or FORGOT_PASSWORD_HARDCODED_RECIPIENT
+            or ""
+        )
         recipient = override_recipient or body.email
         for_line = f"Password reset requested for account: {body.email}\n\n" if override_recipient else ""
         notifications.send_email(
