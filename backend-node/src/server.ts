@@ -26,7 +26,7 @@ const CORS_ORIGINS = (process.env.GTM_CORS_ORIGINS ?? "http://localhost:3000")
   .filter(Boolean);
 
 export function buildServer() {
-  const app = Fastify({ logger: true });
+  const app = Fastify({ logger: process.env.NODE_ENV !== "test" });
 
   // Started here so every process that builds the app runs the sweep
   // (mirrors api.py calling followup_sweep.start() at app setup).
