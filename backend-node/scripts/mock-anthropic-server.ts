@@ -97,12 +97,61 @@ function responseFor(properties: Record<string, unknown>): any {
   throw new Error(`mock-anthropic-server: no canned response matches this schema: ${Object.keys(properties).join(", ")}`);
 }
 
+// Copilot chat (orchestrator.ts's beta.messages.toolRunner) posts here
+// too -- a `tools` array with no `output_config` distinguishes it from
+// a stage's structured-output call. Same "canned, not clever" contract
+// as responseFor(): a keyword trigger on the recruiter's own message
+// picks a tool, exactly like scripts/mock_llm_server.py's
+// _fake_run_chat_turn does in the Python demo server -- not real
+// tool-selection reasoning, just enough to drive a real end-to-end
+// exchange (real tool execution, real DB) for manual/E2E testing.
+function chatResponseFor(body: any): { content: any[]; stopReason: string } {
+  const messages: any[] = body.messages ?? [];
+  const last = messages[messages.length - 1];
+  const lastHasToolResult = Array.isArray(last?.content) && last.content.some((b: any) => b?.type === "tool_result");
+  if (lastHasToolResult) {
+    return { content: [{ type: "text", text: "Done — see above." }], stopReason: "end_turn" };
+  }
+
+  const toolNames = new Set((body.tools ?? []).map((t: any) => t.name));
+  const lastUserText = typeof last?.content === "string" ? last.content : "";
+
+  if (toolNames.has("propose_hiring_profile_edit") && /\badd\b/i.test(lastUserText)) {
+    const value = lastUserText.replace(/.*\badd\b/i, "").replace(/\bas a?\s*must[- ]?have\b/i, "").trim() || "Kubernetes";
+    return {
+      content: [{
+        type: "tool_use", id: `toolu_mock_${Date.now()}`, name: "propose_hiring_profile_edit",
+        input: { field: "must_have", action: "add", value },
+      }],
+      stopReason: "tool_use",
+    };
+  }
+  if (toolNames.has("list_candidates")) {
+    return {
+      content: [{ type: "tool_use", id: `toolu_mock_${Date.now()}`, name: "list_candidates", input: {} }],
+      stopReason: "tool_use",
+    };
+  }
+  return { content: [{ type: "text", text: "(mock) I don't have a canned action for that -- try asking who the candidates are." }], stopReason: "end_turn" };
+}
+
 const server = http.createServer((req, res) => {
   let raw = "";
   req.on("data", (c) => (raw += c));
   req.on("end", () => {
     try {
       const body = JSON.parse(raw);
+      const isChatToolCall = Array.isArray(body.tools) && !body.output_config;
+      if (isChatToolCall) {
+        const { content, stopReason } = chatResponseFor(body);
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({
+          id: `msg_mock_${Date.now()}`, type: "message", role: "assistant", model: body.model,
+          content, stop_reason: stopReason, stop_sequence: null,
+          usage: { input_tokens: 100, output_tokens: 80 },
+        }));
+        return;
+      }
       const schema = body?.output_config?.format?.schema;
       const properties = schema?.properties ?? {};
       const canned = responseFor(properties);
