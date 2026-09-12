@@ -18,6 +18,7 @@ import { registerJobCandidateRoutes } from "./routes/jobCandidates.js";
 import { registerIntegrationRoutes } from "./routes/integrations.js";
 import { registerAiStageRoutes } from "./routes/aiStages.js";
 import { registerChatRoutes } from "./routes/chat.js";
+import { start as startFollowupSweep } from "./followupSweep.js";
 
 const CORS_ORIGINS = (process.env.GTM_CORS_ORIGINS ?? "http://localhost:3000")
   .split(",")
@@ -26,6 +27,10 @@ const CORS_ORIGINS = (process.env.GTM_CORS_ORIGINS ?? "http://localhost:3000")
 
 export function buildServer() {
   const app = Fastify({ logger: true });
+
+  // Started here so every process that builds the app runs the sweep
+  // (mirrors api.py calling followup_sweep.start() at app setup).
+  startFollowupSweep();
 
   app.register(cors, { origin: CORS_ORIGINS, credentials: true });
   app.register(cookie);
