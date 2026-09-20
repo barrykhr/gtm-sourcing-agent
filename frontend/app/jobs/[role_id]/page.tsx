@@ -9,6 +9,7 @@ import {
   ActivityEntry,
   Candidate,
   CanonicalCandidate,
+  ForecastResult,
   FUNNEL_STAGES,
   JOB_LIFECYCLE_LABELS,
   JOB_LIFECYCLE_STATUSES,
@@ -26,6 +27,7 @@ import {
   getActivity,
   getCandidateGlobal,
   getCandidateResumeUrl,
+  getFunnelForecast,
   getFunnelReport,
   getJob,
   getRecruiters,
@@ -2535,8 +2537,94 @@ function AnalyticsTab({ roleId, dataVersion }: { roleId: string; dataVersion: nu
         </Card>
       )}
 
+      <ForecastCard />
+
       <IntegrationsCard roleId={roleId} />
     </div>
+  );
+}
+
+// Pure arithmetic (no LLM call, no role_id) — back-calculates required
+// sourcing/screening/interview volume from a hiring target and timeline,
+// using either the market-default conversion rates the backend ships
+// with or ones the recruiter overrides here. Labelled "market default"
+// vs. an edited value so this never reads as measured fact.
+function ForecastCard() {
+  const [hires, setHires] = useState("1");
+  const [weeks, setWeeks] = useState("8");
+  const [result, setResult] = useState<ForecastResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function run() {
+    const hiresNum = Number(hires);
+    const weeksNum = Number(weeks);
+    if (!Number.isFinite(hiresNum) || hiresNum < 1 || !Number.isFinite(weeksNum) || weeksNum < 1) {
+      setError("Enter a hire count and timeline of at least 1.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      setResult(await getFunnelForecast({ hires: hiresNum, weeks: weeksNum }));
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not compute the forecast.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const rows: [string, number][] | null = result
+    ? [
+        ["Sourced candidates", result.required_sourced_candidates],
+        ["Qualified/contacted", result.required_qualified_candidates],
+        ["Recruiter screens", result.required_recruiter_screens],
+        ["HM interviews", result.required_hm_interviews],
+        ["Final interviews", result.required_finalists],
+        ["Offers", result.required_offers],
+      ]
+    : null;
+
+  return (
+    <Card title="Hiring forecast">
+      <p className="mb-3 text-xs text-zinc-500">
+        How many candidates you need at each stage to land a given number of hires in a given timeline, using
+        market-default conversion rates (not this role&apos;s own data).
+      </p>
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="flex flex-col gap-1 text-xs text-zinc-500">
+          Hires needed
+          <input
+            type="number" min={1} value={hires} onChange={(e) => setHires(e.target.value)}
+            className="w-24 rounded-md border border-zinc-300 px-2 py-1.5 text-sm outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-zinc-950"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-xs text-zinc-500">
+          Timeline (weeks)
+          <input
+            type="number" min={1} value={weeks} onChange={(e) => setWeeks(e.target.value)}
+            className="w-28 rounded-md border border-zinc-300 px-2 py-1.5 text-sm outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-zinc-950"
+          />
+        </label>
+        <button
+          onClick={run} disabled={busy}
+          className="rounded-md bg-indigo-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-800 disabled:opacity-50"
+        >
+          {busy ? "Calculating…" : "Calculate"}
+        </button>
+      </div>
+      {error && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{error}</p>}
+      {rows && (
+        <div className="mt-3 grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
+          {rows.map(([label, value]) => (
+            <div key={label} className="flex justify-between">
+              <span className="text-zinc-500">{label}</span>
+              <span className="tabular-nums font-medium">{value}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
   );
 }
 

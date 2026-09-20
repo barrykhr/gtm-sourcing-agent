@@ -19,6 +19,7 @@ import {
   getTeamUsage,
   getTeamVelocity,
   listUsers,
+  sendTestEmail,
   setOutreachSettings,
   setUserRole,
 } from "@/lib/api";
@@ -345,6 +346,71 @@ function OutreachSettingsPanel() {
             </div>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+// SMTP diagnostic (POST /admin/test-email) — admin-only, same reasoning
+// as the panels above. Unlike forgot-password's always-succeeds response
+// (deliberately, to avoid leaking which emails have accounts), this
+// reports the real send outcome, error text included, so an admin can
+// debug delivery without server log access.
+function EmailDiagnosticsPanel() {
+  const { user } = useAuth();
+  const [to, setTo] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ sent: boolean; error: string | null } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  if (user?.role !== "admin") return null;
+
+  const recipient = to.trim() || user?.email || "";
+
+  async function send() {
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    try {
+      setResult(await sendTestEmail(recipient));
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Could not reach the API.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div>
+      <h2 className="font-display text-xl tracking-tight">Email diagnostics</h2>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Admin-only. Sends a real test email through the configured SMTP server and reports exactly what happened —
+        useful for confirming delivery is actually working, not just that the route exists.
+      </p>
+      {error && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{error}</p>}
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <input
+          value={to}
+          onChange={(e) => { setTo(e.target.value); setResult(null); }}
+          placeholder={user?.email ?? "you@example.com"}
+          className="min-w-56 flex-1 rounded-md border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-zinc-950"
+        />
+        <button
+          onClick={send}
+          disabled={busy || !recipient}
+          className="rounded-md bg-indigo-700 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-800 disabled:opacity-50"
+        >
+          {busy ? "Sending…" : "Send test email"}
+        </button>
+      </div>
+      {result && (
+        <p
+          className={`mt-2 text-xs ${
+            result.sent ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"
+          }`}
+        >
+          {result.sent ? `Sent to ${recipient}.` : `Not sent — ${result.error}`}
+        </p>
       )}
     </div>
   );
@@ -684,12 +750,14 @@ export default function TeamUsagePage() {
 
       <OutreachSettingsPanel />
 
+      <EmailDiagnosticsPanel />
+
       <IntegrationsPanel />
 
       {isAdmin && (
         <p className="text-xs text-zinc-400">
-          The usage/performance and revenue data above, and the Accounts &amp; roles and Outreach follow-ups
-          sections, are all admin-only.
+          The usage/performance and revenue data above, and the Accounts &amp; roles, Outreach follow-ups, and
+          Email diagnostics sections, are all admin-only.
         </p>
       )}
     </div>

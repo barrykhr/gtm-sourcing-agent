@@ -79,6 +79,12 @@ export const setUserRole = (userId: string, role: "admin" | "recruiter") =>
   patch<TeamMember>(`/users/${userId}/role`, { role });
 export const logout = () => post<{ status: string }>("/auth/logout");
 
+// Admin SMTP diagnostic — attempts a real send and reports exactly why it
+// failed (unlike forgot-password's always-succeeds response), so an admin
+// can debug email delivery without server log access.
+export type TestEmailResult = { sent: boolean; error: string | null };
+export const sendTestEmail = (to: string) => post<TestEmailResult>("/admin/test-email", { to });
+
 // ── types (only the fields the UI actually reads) ─────────────────────────
 
 export type PipelineStatus = {
@@ -816,3 +822,41 @@ export const FUNNEL_STAGES = [
   "IDENTIFIED", "REVIEWED", "SHORTLISTED", "CONTACTED", "RESPONDED", "INTERESTED",
   "RECRUITER_SCREEN", "HM_INTERVIEW", "FINAL_INTERVIEW", "OFFER", "ACCEPTED", "JOINED",
 ] as const;
+
+// Deterministic arithmetic (no LLM call) — back-calculates required volume
+// at each funnel stage from a hiring target + conversion-rate assumptions.
+// Not job-scoped: usable for any what-if ("what if I need 2 hires in 6
+// weeks"), independent of any single role's own funnel data.
+export type ForecastRequest = {
+  hires: number;
+  weeks: number;
+  source?: string;
+  screen_to_hm?: number;
+  hm_to_final?: number;
+  final_to_offer?: number;
+  offer_to_accept?: number;
+  contacted_to_screen?: number;
+  sourced_to_contacted?: number;
+};
+
+export type ForecastResult = {
+  hires_needed: number;
+  timeline_weeks: number;
+  assumptions: {
+    source: string;
+    screen_to_hm_interview: number;
+    hm_interview_to_final: number;
+    final_to_offer: number;
+    offer_to_accept: number;
+    contacted_to_screen: number;
+    sourced_to_contacted: number;
+  };
+  required_offers: number;
+  required_finalists: number;
+  required_hm_interviews: number;
+  required_recruiter_screens: number;
+  required_qualified_candidates: number;
+  required_sourced_candidates: number;
+};
+
+export const getFunnelForecast = (body: ForecastRequest) => post<ForecastResult>("/funnel/forecast", body);
