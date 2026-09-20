@@ -72,6 +72,10 @@ followup_sweep.start()
 _PUBLIC_PATHS = {
     "/", "/health", "/auth/signup", "/auth/login", "/auth/status", "/auth/google",
     "/auth/forgot-password", "/auth/reset-password",
+    # Gated by its own shared-secret check (GTM_ADMIN_BOOTSTRAP_SECRET),
+    # not by a session — the entire point is working with no logged-in
+    # admin to grant one. See the route's own docstring.
+    "/admin/bootstrap-admin",
 }
 _COOKIE_SECURE = os.environ.get("GTM_COOKIE_SECURE", "false").lower() == "true"
 # SameSite=Lax (the default) is right for local dev, where the frontend
@@ -299,6 +303,30 @@ def set_user_role(user_id: str, body: UserRoleRequest, _admin: dict[str, Any] = 
     # Not logged via ActivityLog: that table is job-scoped (role_id is a
     # non-null FK to jobs.role_id) — a role change isn't about any job.
     return _run_stage(auth.set_user_role, user_id, body.role)
+
+
+class BootstrapAdminRequest(BaseModel):
+    email: str
+    secret: str
+
+
+# One-time escape hatch, not gated by require_role: promotes an account
+# to admin using a shared secret instead of an existing admin's session
+# — for the situation set_user_role above can't reach, where no admin
+# account anyone can actually log into exists (e.g. the workspace's
+# original first-signup admin was a dev/test login nobody has the
+# password to, and SMTP isn't configured so "forgot password" has
+# nowhere to send the reset link either). Unset GTM_ADMIN_BOOTSTRAP_SECRET
+# (the default) disables this route entirely — every call gets the same
+# 403 regardless of body, so it can't be used to probe whether an email
+# has an account. Set it temporarily on the host, use it once, then
+# unset it again.
+@app.post("/admin/bootstrap-admin")
+def bootstrap_admin(body: BootstrapAdminRequest) -> dict[str, Any]:
+    secret = os.environ.get("GTM_ADMIN_BOOTSTRAP_SECRET")
+    if not secret or body.secret != secret:
+        raise HTTPException(status_code=403, detail="bootstrap disabled or secret incorrect")
+    return _run_stage(auth.promote_to_admin_by_email, body.email)
 
 
 class TestEmailRequest(BaseModel):

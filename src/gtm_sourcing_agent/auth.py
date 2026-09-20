@@ -158,6 +158,23 @@ def set_user_role(user_id: str, role: str) -> dict[str, Any]:
         return {"id": user.id, "email": user.email, "role": user.role}
 
 
+def promote_to_admin_by_email(email: str) -> dict[str, Any]:
+    """Same effect as set_user_role(..., "admin"), keyed by email instead
+    of id — backs api.py's POST /admin/bootstrap-admin, a one-time escape
+    hatch for the situation set_user_role can't reach: no admin account
+    anyone can actually log into exists yet (e.g. the workspace's
+    original first-signup admin was a dev/test login nobody has the
+    password to). Gated by a shared secret instead of require_role, since
+    there may be no admin session to check against."""
+    with db.get_session() as db_session:
+        user = db_session.scalars(select(User).where(User.email == email)).first()
+        if user is None:
+            raise ValueError(f"no account exists for '{email}' — that person needs to sign up first")
+        user.role = "admin"
+        db_session.commit()
+        return {"id": user.id, "email": user.email, "role": user.role}
+
+
 def list_users() -> list[dict[str, Any]]:
     """Admin-only account roster — see api.py's GET /users."""
     with db.get_session() as db_session:

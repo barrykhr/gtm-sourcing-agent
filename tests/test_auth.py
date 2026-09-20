@@ -225,6 +225,41 @@ def test_admin_can_list_users_and_promote_a_recruiter(isolated_db):
     assert {u["role"] for u in client.get("/users").json()} == {"admin"}
 
 
+def test_bootstrap_admin_disabled_by_default(isolated_db):
+    client.post("/auth/signup", json={"email": "someone@example.com", "password": "hunter22"})
+    resp = client.post("/admin/bootstrap-admin", json={"email": "someone@example.com", "secret": "anything"})
+    assert resp.status_code == 403
+
+
+def test_bootstrap_admin_rejects_wrong_secret(isolated_db, monkeypatch):
+    monkeypatch.setenv("GTM_ADMIN_BOOTSTRAP_SECRET", "correct-secret")
+    client.post("/auth/signup", json={"email": "someone@example.com", "password": "hunter22"})
+    resp = client.post("/admin/bootstrap-admin", json={"email": "someone@example.com", "secret": "wrong-secret"})
+    assert resp.status_code == 403
+
+
+def test_bootstrap_admin_promotes_by_email_with_no_session_needed(isolated_db, monkeypatch):
+    monkeypatch.setenv("GTM_ADMIN_BOOTSTRAP_SECRET", "correct-secret")
+    client.post("/auth/signup", json={"email": "first@example.com", "password": "hunter22"})  # already admin
+    client.post("/auth/logout")
+    client.post("/auth/signup", json={"email": "second@example.com", "password": "hunter22"})
+    client.post("/auth/logout")
+    client.cookies.clear()  # confirms this works fully logged out, no session at all
+
+    resp = client.post("/admin/bootstrap-admin", json={"email": "second@example.com", "secret": "correct-secret"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["role"] == "admin"
+
+    client.post("/auth/login", json={"email": "second@example.com", "password": "hunter22"})
+    assert client.get("/auth/me").json()["role"] == "admin"
+
+
+def test_bootstrap_admin_errors_for_unknown_email(isolated_db, monkeypatch):
+    monkeypatch.setenv("GTM_ADMIN_BOOTSTRAP_SECRET", "correct-secret")
+    resp = client.post("/admin/bootstrap-admin", json={"email": "nobody@example.com", "secret": "correct-secret"})
+    assert resp.status_code == 400
+
+
 def test_client_and_interviewer_are_not_assignable_yet(isolated_db):
     admin = client.post("/auth/signup", json={"email": "admin@example.com", "password": "hunter22"})
     admin_id = admin.json()["id"]
