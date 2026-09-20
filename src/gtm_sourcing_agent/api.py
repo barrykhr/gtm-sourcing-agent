@@ -683,6 +683,14 @@ def get_job(role_id: str) -> dict[str, Any]:
     return {**jobs[role_id], **_job_summary(role_id), "state": state}
 
 
+@app.delete("/jobs/{role_id}")
+def delete_job(role_id: str, _admin: dict[str, Any] = Depends(require_role("admin"))) -> dict[str, str]:
+    if not db_storage.job_exists(role_id):
+        raise HTTPException(status_code=404, detail=f"job '{role_id}' not found")
+    db_storage.delete_job(role_id)
+    return {"status": f"job '{role_id}' deleted"}
+
+
 @app.get("/jobs/{role_id}/activity")
 def get_activity(role_id: str) -> list[dict[str, Any]]:
     if not db_storage.job_exists(role_id):

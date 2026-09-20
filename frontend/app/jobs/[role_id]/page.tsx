@@ -24,6 +24,7 @@ import {
   attachExistingCandidate,
   bulkImportCandidates,
   cloneJob,
+  deleteJob,
   getActivity,
   getCandidateGlobal,
   getCandidateResumeUrl,
@@ -86,6 +87,8 @@ type Tab = (typeof TABS)[number];
 export default function JobWorkspace() {
   const params = useParams<{ role_id: string }>();
   const roleId = params.role_id;
+  const router = useRouter();
+  const { user } = useAuth();
 
   const [job, setJob] = useState<JobDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -124,6 +127,23 @@ export default function JobWorkspace() {
     }
   }
 
+  async function deleteRole() {
+    if (!job) return;
+    const confirmed = window.confirm(
+      `Permanently delete "${job.title}" and every candidate/evaluation/note logged against it? This cannot be undone.`,
+    );
+    if (!confirmed) return;
+    setBusy("Delete role");
+    setError(null);
+    try {
+      await deleteJob(roleId);
+      router.push("/");
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Delete failed.");
+      setBusy(null);
+    }
+  }
+
   if (error && !job) {
     return <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-400">{error}</div>;
   }
@@ -152,6 +172,16 @@ export default function JobWorkspace() {
           >
             AI Copilot
           </button>
+          {user?.role === "admin" && (
+            <button
+              onClick={deleteRole}
+              disabled={busy === "Delete role"}
+              title="Admin-only. Permanently deletes this role and its candidates/evaluations."
+              className="rounded-md border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950"
+            >
+              {busy === "Delete role" ? "Deleting…" : "Delete role"}
+            </button>
+          )}
         </div>
       </div>
 

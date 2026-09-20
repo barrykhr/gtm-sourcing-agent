@@ -29,10 +29,10 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from . import db, revenue
+from . import db, file_storage, revenue
 from .models_orm import (
     ActivityLog, CandidateEvaluation, CanonicalCandidate, CommunicationLogEntry, Job, JobRecruiter, JobSection,
     Task, User, WorkspaceSettings,
@@ -860,6 +860,56 @@ def clone_role(
 def job_exists(role_id: str) -> bool:
     with db.get_session() as session:
         return session.get(Job, role_id) is not None
+
+
+def delete_job(role_id: str) -> None:
+    """Permanently deletes a job and everything scoped to it: sections,
+    recruiter assignments, tasks, activity log, communication log, and
+    this job's candidate evaluations. A CanonicalCandidate is global
+    (reusable across jobs — see its docstring), so it's only deleted
+    once it has no evaluations left anywhere, not just in this job;
+    deleting a job a candidate was *also* evaluated in elsewhere leaves
+    that candidate and its other evaluation untouched. Irreversible —
+    api.py gates this behind require_role("admin")."""
+    if not job_exists(role_id):
+        raise ValueError(f"job '{role_id}' not found")
+    resume_keys: list[str] = []
+    with db.get_session() as session:
+        resume_keys = [
+            key for (key,) in session.execute(
+                select(CandidateEvaluation.resume_file_key)
+                .where(CandidateEvaluation.role_id == role_id, CandidateEvaluation.resume_file_key.is_not(None))
+            )
+        ]
+        candidate_ids = [
+            cid for (cid,) in session.execute(
+                select(CandidateEvaluation.canonical_candidate_id).where(CandidateEvaluation.role_id == role_id)
+            )
+        ]
+        session.execute(delete(CommunicationLogEntry).where(CommunicationLogEntry.role_id == role_id))
+        session.execute(delete(Task).where(Task.role_id == role_id))
+        session.execute(delete(ActivityLog).where(ActivityLog.role_id == role_id))
+        session.execute(delete(JobRecruiter).where(JobRecruiter.role_id == role_id))
+        session.execute(delete(JobSection).where(JobSection.role_id == role_id))
+        session.execute(delete(CandidateEvaluation).where(CandidateEvaluation.role_id == role_id))
+        # A candidate first seen in this job with no evaluation row (edge
+        # case — first_seen_job_id is set at add-time, before the
+        # evaluation itself is written) still needs to be considered.
+        first_seen_here = [
+            cid for (cid,) in session.execute(
+                select(CanonicalCandidate.id).where(CanonicalCandidate.first_seen_job_id == role_id)
+            )
+        ]
+        for candidate_id in set(candidate_ids) | set(first_seen_here):
+            still_evaluated = session.execute(
+                select(CandidateEvaluation.id).where(CandidateEvaluation.canonical_candidate_id == candidate_id)
+            ).first()
+            if still_evaluated is None:
+                session.execute(delete(CanonicalCandidate).where(CanonicalCandidate.id == candidate_id))
+        session.execute(delete(Job).where(Job.role_id == role_id))
+        session.commit()
+    for key in resume_keys:
+        file_storage.delete_resume(key)
 
 
 # ── global candidate roster (Phase 2) ───────────────────────────────────

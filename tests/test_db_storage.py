@@ -583,3 +583,49 @@ def test_search_no_match_returns_empty_lists(isolated_db):
     db_storage.create_job("acme-ae-2026", title="Acme AE")
     result = db_storage.search("zzz-no-such-thing")
     assert result == {"jobs": [], "candidates": []}
+
+
+def test_delete_job_removes_job_and_its_only_candidate(isolated_db):
+    db_storage.create_job("job-a", title="A")
+    db_storage.merge_candidate("job-a", "cand-1", {"name": "Jane Doe"})
+    canonical_id = db_storage.list_canonical_candidates()[0]["candidate_id"]
+
+    db_storage.delete_job("job-a")
+
+    assert db_storage.job_exists("job-a") is False
+    assert db_storage.get_canonical_candidate(canonical_id) is None
+    assert db_storage.list_canonical_candidates() == []
+
+
+def test_delete_job_keeps_a_candidate_still_evaluated_elsewhere(isolated_db):
+    db_storage.create_job("job-a", title="A")
+    db_storage.create_job("job-b", title="B")
+    db_storage.merge_candidate("job-a", "cand-1", {"name": "Jane Doe"})
+    canonical_id = db_storage.list_canonical_candidates()[0]["candidate_id"]
+    db_storage.attach_existing_candidate("job-b", canonical_id)
+
+    db_storage.delete_job("job-a")
+
+    assert db_storage.job_exists("job-a") is False
+    assert db_storage.job_exists("job-b") is True
+    remaining = db_storage.get_canonical_candidate(canonical_id)
+    assert remaining is not None
+    assert len(remaining["evaluations"]) == 1
+    assert remaining["evaluations"][0]["role_id"] == "job-b"
+
+
+def test_delete_job_removes_scoped_data(isolated_db):
+    db_storage.create_job("job-a", title="A", owner_email="priya@example.com")
+    db_storage.merge_candidate("job-a", "cand-1", {"name": "Jane Doe"})
+    db_storage.log_activity("job-a", "priya@example.com", "did a thing")
+    db_storage.create_task("job-a", "icp", {})
+
+    db_storage.delete_job("job-a")
+
+    assert db_storage.list_activity("job-a") == []
+    assert db_storage.list_tasks("job-a") == []
+
+
+def test_delete_job_raises_for_missing_job(isolated_db):
+    with pytest.raises(ValueError):
+        db_storage.delete_job("no-such-job")

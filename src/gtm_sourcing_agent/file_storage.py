@@ -87,7 +87,7 @@ def upload_resume(role_id: str, filename: str, content: bytes, content_type: str
     try:
         _get_client().put_object(Bucket=bucket, Key=key, Body=content, ContentType=content_type)
     except (ClientError, BotoCoreError):
-        logger.exception("resume upload failed for candidate %s", candidate_id)
+        logger.exception("resume upload failed for role %s, file %s", role_id, filename)
         return None
     return key
 
@@ -107,3 +107,17 @@ def get_resume_download_url(file_key: str, expires_in: int = 3600) -> str | None
     except (ClientError, BotoCoreError):
         logger.exception("failed to generate a resume download URL for key %s", file_key)
         return None
+
+
+def delete_resume(file_key: str) -> None:
+    """Best-effort delete of an uploaded resume, e.g. when the job it
+    belongs to is deleted. Never raises: a storage-side failure here
+    shouldn't block the caller's own (already-committed) deletion, and
+    there's nothing a caller could usefully do differently either way."""
+    if not is_configured():
+        return
+    bucket = os.environ[ENV_BUCKET]
+    try:
+        _get_client().delete_object(Bucket=bucket, Key=file_key)
+    except (ClientError, BotoCoreError):
+        logger.exception("failed to delete resume for key %s", file_key)

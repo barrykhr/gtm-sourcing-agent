@@ -41,6 +41,7 @@ const post = <T>(path: string, body?: unknown) =>
 const get = <T>(path: string) => request<T>(path);
 const patch = <T>(path: string, body: unknown) => request<T>(path, { method: "PATCH", body: JSON.stringify(body) });
 const put = <T>(path: string, body: unknown) => request<T>(path, { method: "PUT", body: JSON.stringify(body) });
+const del = <T>(path: string) => request<T>(path, { method: "DELETE" });
 
 // Every stage response is validated server-side against a Pydantic schema
 // (see models/*.py) — the frontend doesn't re-declare each one, since the
@@ -207,6 +208,10 @@ export const createJob = (
 ) => post<JobSummary>("/jobs", { title, role_family, role_id, client_name, role_value: role_value ?? null });
 
 export const getJob = (roleId: string) => get<JobDetail>(`/jobs/${roleId}`);
+
+// Admin-only, irreversible -- deletes the job plus everything scoped to
+// it (see db_storage.delete_job's docstring for exactly what cascades).
+export const deleteJob = (roleId: string) => del<{ status: string }>(`/jobs/${roleId}`);
 
 // Role templates (Phase 8): start a new job from an existing one's
 // hiring strategy instead of a blank intake — see db_storage.clone_role's
