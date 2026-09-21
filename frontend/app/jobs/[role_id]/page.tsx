@@ -70,6 +70,7 @@ import { StatusChip, rygVariant, tierVariant } from "@/components/StatusChip";
 import { CopilotPanel } from "@/components/CopilotPanel";
 import { CommunicationsCard } from "@/components/CommunicationsCard";
 import { InterviewsCard } from "@/components/InterviewsCard";
+import { IntelligenceCard } from "@/components/IntelligenceCard";
 import { useAuth } from "@/lib/auth-context";
 
 const TABS = [
@@ -1909,6 +1910,8 @@ function CandidatesTab({
                             <InterviewsCard
                               roleId={roleId} candidateId={c.candidate_id} candidateName={c.name}
                             />
+
+                            <IntelligenceCard roleId={roleId} candidateId={c.candidate_id} />
 
                             <SchedulingCard candidateName={c.name} />
 

@@ -2,18 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
-  AskInterviewAnswer,
-  EvidenceStrength,
   Interview,
-  InterviewIntelligence,
   TranscriptSegment,
-  analyzeInterview,
-  askInterviewQuestion,
   completeInterview,
   correctSegmentSpeaker,
   createInterview,
   getInterview,
-  getInterviewIntelligence,
   getTranscript,
   listInterviews,
   pollTaskUntilDone,
@@ -40,13 +34,6 @@ const SPEAKER_LABEL: Record<TranscriptSegment["speaker"], string> = {
   recruiter: "Recruiter",
   candidate: "Candidate",
   unknown: "Unknown",
-};
-
-const EVIDENCE_CLASS: Record<EvidenceStrength, string> = {
-  "Strong evidence": "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400",
-  "Needs validation": "bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400",
-  "Not discussed": "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400",
-  "Insufficient evidence": "bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-400",
 };
 
 function formatElapsed(totalSeconds: number): string {
@@ -195,62 +182,17 @@ export function InterviewsCard({
   const [transcriptQuery, setTranscriptQuery] = useState("");
   const [retryingId, setRetryingId] = useState<string | null>(null);
 
-  // ── intelligence (Phase 2) ───────────────────────────────────────────
-  const [intelligence, setIntelligence] = useState<InterviewIntelligence | null>(null);
-  const [analyzing, setAnalyzing] = useState(false);
-  const [expandedCompetencyId, setExpandedCompetencyId] = useState<number | null>(null);
-  const [askQuestion, setAskQuestion] = useState("");
-  const [askAnswer, setAskAnswer] = useState<AskInterviewAnswer | null>(null);
-  const [asking, setAsking] = useState(false);
-
   function toggleOpen(interview: Interview) {
     if (openId === interview.id) {
       setOpenId(null);
       setTranscript(null);
-      setIntelligence(null);
       return;
     }
     setOpenId(interview.id);
     setTranscript(null);
     setTranscriptQuery("");
-    setIntelligence(null);
-    setAskQuestion("");
-    setAskAnswer(null);
     if (interview.transcript_status === "completed") {
       getTranscript(interview.id).then(setTranscript).catch(() => setTranscript([]));
-    }
-    if (interview.intelligence_status === "completed") {
-      getInterviewIntelligence(interview.id).then(setIntelligence).catch(() => {});
-    }
-  }
-
-  async function runAnalysis(interviewId: string) {
-    setAnalyzing(true);
-    try {
-      const task = await analyzeInterview(interviewId);
-      loadInterviews();
-      await pollTaskUntilDone(roleId, task.task_id);
-      loadInterviews();
-      if (openId === interviewId) {
-        getInterviewIntelligence(interviewId).then(setIntelligence).catch(() => {});
-      }
-    } finally {
-      setAnalyzing(false);
-    }
-  }
-
-  async function askTalyn(interviewId: string) {
-    if (!askQuestion.trim()) return;
-    setAsking(true);
-    setAskAnswer(null);
-    try {
-      const task = await askInterviewQuestion(interviewId, askQuestion.trim());
-      const finished = await pollTaskUntilDone(roleId, task.task_id);
-      if (finished.status === "succeeded" && finished.result) {
-        setAskAnswer(finished.result as AskInterviewAnswer);
-      }
-    } finally {
-      setAsking(false);
     }
   }
 
@@ -421,131 +363,10 @@ export function InterviewsCard({
                       <p className="text-xs text-zinc-400">Transcribing…</p>
                     )}
 
-                    {interview.transcript_status === "completed" && (
-                      <div className="mb-3 rounded-md border border-zinc-200 p-3 dark:border-zinc-800">
-                        <div className="flex items-center justify-between">
-                          <p className="text-xs font-semibold text-zinc-600 dark:text-zinc-300">
-                            Intelligence — evidence vs. job requirements
-                          </p>
-                          {interview.intelligence_status !== "processing" && (
-                            <button
-                              onClick={() => runAnalysis(interview.id)}
-                              disabled={analyzing}
-                              className="rounded-md border border-zinc-300 px-2 py-1 text-[11px] font-medium hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
-                            >
-                              {analyzing
-                                ? "Analyzing…"
-                                : intelligence
-                                  ? "Re-analyze"
-                                  : "Analyze interview"}
-                            </button>
-                          )}
-                        </div>
-                        <p className="mt-1 text-[11px] text-zinc-400">
-                          Maps this role&apos;s must-haves/nice-to-haves against what the candidate actually said —
-                          never the resume, and never a hire/reject call.
-                        </p>
-
-                        {interview.intelligence_status === "processing" && (
-                          <p className="mt-2 text-xs text-indigo-600 dark:text-indigo-400">Analyzing transcript…</p>
-                        )}
-                        {interview.intelligence_status === "failed" && interview.intelligence_error && (
-                          <p className="mt-2 text-xs text-red-600 dark:text-red-400">{interview.intelligence_error}</p>
-                        )}
-
-                        {intelligence && intelligence.competencies.length > 0 && (
-                          <ul className="mt-2 flex flex-col gap-1.5">
-                            {intelligence.competencies.map((c) => (
-                              <li key={c.id} className="rounded border border-zinc-200 dark:border-zinc-800">
-                                <button
-                                  onClick={() => setExpandedCompetencyId(expandedCompetencyId === c.id ? null : c.id)}
-                                  className="flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left text-xs"
-                                >
-                                  <span className="flex items-center gap-2">
-                                    <span
-                                      className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${EVIDENCE_CLASS[c.status]}`}
-                                    >
-                                      {c.status}
-                                    </span>
-                                    <span>{c.competency}</span>
-                                    <span className="text-[10px] uppercase text-zinc-400">
-                                      {c.category === "must_have" ? "must-have" : "nice-to-have"}
-                                    </span>
-                                  </span>
-                                </button>
-                                {expandedCompetencyId === c.id && (
-                                  <div className="border-t border-zinc-100 px-2 py-1.5 dark:border-zinc-800">
-                                    <p className="text-xs text-zinc-600 dark:text-zinc-400">{c.rationale}</p>
-                                    {c.evidence.length > 0 && (
-                                      <ul className="mt-1.5 flex flex-col gap-1">
-                                        {c.evidence.map((e, i) => (
-                                          <li key={i} className="rounded bg-zinc-50 p-1.5 text-[11px] dark:bg-zinc-900">
-                                            <span className="mr-1.5 text-zinc-400">{formatTimestamp(e.start_time)}</span>
-                                            <span className="mr-1.5 font-medium">{SPEAKER_LABEL[e.speaker]}:</span>
-                                            {e.text}
-                                          </li>
-                                        ))}
-                                      </ul>
-                                    )}
-                                  </div>
-                                )}
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-
-                        {intelligence && intelligence.follow_up_questions.length > 0 && (
-                          <div className="mt-3">
-                            <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">
-                              Suggested follow-up questions
-                            </p>
-                            <ul className="mt-1 list-disc pl-4 text-xs text-zinc-700 dark:text-zinc-300">
-                              {intelligence.follow_up_questions.map((f) => (
-                                <li key={f.id} title={f.rationale}>{f.question}</li>
-                              ))}
-                            </ul>
-                          </div>
-                        )}
-
-                        <div className="mt-3 border-t border-zinc-100 pt-3 dark:border-zinc-800">
-                          <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">Ask Talyn</p>
-                          <div className="mt-1 flex gap-2">
-                            <input
-                              value={askQuestion}
-                              onChange={(e) => setAskQuestion(e.target.value)}
-                              onKeyDown={(e) => e.key === "Enter" && askTalyn(interview.id)}
-                              placeholder="Ask a question about this interview…"
-                              className="flex-1 rounded-md border border-zinc-300 px-2 py-1 text-xs outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-zinc-950"
-                            />
-                            <button
-                              onClick={() => askTalyn(interview.id)}
-                              disabled={asking || !askQuestion.trim()}
-                              className="shrink-0 rounded-md border border-zinc-300 px-2 py-1 text-[11px] font-medium hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
-                            >
-                              {asking ? "Asking…" : "Ask"}
-                            </button>
-                          </div>
-                          {askAnswer && (
-                            <div className="mt-2 rounded-md bg-indigo-50/60 p-2 dark:bg-indigo-950/30">
-                              <p className="text-xs">{askAnswer.answer}</p>
-                              {askAnswer.citations.length > 0 && (
-                                <ul className="mt-1 flex flex-col gap-1">
-                                  {askAnswer.citations.map((c, i) => (
-                                    <li key={i} className="text-[11px] text-zinc-500">
-                                      <span className="mr-1">{formatTimestamp(c.start_time)}</span>
-                                      <span className="font-medium">{SPEAKER_LABEL[c.speaker]}:</span> {c.text}
-                                    </li>
-                                  ))}
-                                </ul>
-                              )}
-                            </div>
-                          )}
-                          <p className="mt-1 text-[11px] text-zinc-400">
-                            Answers only from this transcript, the resume, and the job requirements — never invents
-                            evidence.
-                          </p>
-                        </div>
-                      </div>
+                    {interview.transcript_status === "completed" && interview.intelligence_status === "completed" && (
+                      <p className="mb-3 text-[11px] text-zinc-400">
+                        See the Intelligence card below for this interview&apos;s evidence scorecard and Ask Talyn.
+                      </p>
                     )}
 
                     {transcript && (
