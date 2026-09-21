@@ -69,6 +69,7 @@ import {
 import { StatusChip, rygVariant, tierVariant } from "@/components/StatusChip";
 import { CopilotPanel } from "@/components/CopilotPanel";
 import { CommunicationsCard } from "@/components/CommunicationsCard";
+import { InterviewsCard } from "@/components/InterviewsCard";
 import { useAuth } from "@/lib/auth-context";
 
 const TABS = [
@@ -1903,6 +1904,10 @@ function CandidatesTab({
                                 whatToValidate: c.prioritization?.what_to_validate ?? [],
                                 suggestedQuestions: job.state.screening?.[c.candidate_id]?.must_ask ?? [],
                               }}
+                            />
+
+                            <InterviewsCard
+                              roleId={roleId} candidateId={c.candidate_id} candidateName={c.name}
                             />
 
                             <SchedulingCard candidateName={c.name} />

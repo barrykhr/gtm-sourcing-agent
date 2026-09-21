@@ -121,3 +121,38 @@ def delete_resume(file_key: str) -> None:
         _get_client().delete_object(Bucket=bucket, Key=file_key)
     except (ClientError, BotoCoreError):
         logger.exception("failed to delete resume for key %s", file_key)
+
+
+def upload_interview_recording(interview_id: str, filename: str, content: bytes, content_type: str) -> str | None:
+    """Same contract as upload_resume above, for interview recordings
+    (Interview Intelligence, Phase 1) — a separate key prefix so the two
+    kinds of file live in distinguishable paths in the same bucket, not
+    a separate bucket or credential set."""
+    if not is_configured():
+        return None
+    bucket = os.environ[ENV_BUCKET]
+    key = f"interviews/{interview_id}/{uuid.uuid4().hex[:12]}-{filename}"
+    try:
+        _get_client().put_object(Bucket=bucket, Key=key, Body=content, ContentType=content_type)
+    except (ClientError, BotoCoreError):
+        logger.exception("interview recording upload failed for interview %s, file %s", interview_id, filename)
+        return None
+    return key
+
+
+def download_file(file_key: str) -> bytes | None:
+    """Fetches the raw bytes for `file_key` server-side — unlike
+    get_resume_download_url above, which hands the *browser* a presigned
+    URL, this is for a server-side consumer that needs the bytes
+    directly (the interview transcription pipeline passes them straight
+    to the transcription provider's API). Returns None if storage isn't
+    configured or the object can't be read."""
+    if not is_configured():
+        return None
+    bucket = os.environ[ENV_BUCKET]
+    try:
+        obj = _get_client().get_object(Bucket=bucket, Key=file_key)
+        return obj["Body"].read()
+    except (ClientError, BotoCoreError):
+        logger.exception("failed to download file for key %s", file_key)
+        return None

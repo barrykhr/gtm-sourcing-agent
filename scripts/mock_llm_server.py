@@ -18,7 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from gtm_sourcing_agent import db_storage, llm_client, orchestrator  # noqa: E402
+from gtm_sourcing_agent import db_storage, file_storage, llm_client, orchestrator, transcription  # noqa: E402
 from gtm_sourcing_agent.models import (  # noqa: E402
     Candidate,
     CandidatePrioritization,
@@ -26,6 +26,7 @@ from gtm_sourcing_agent.models import (  # noqa: E402
     ConversationSummaryResult,
     HiringManagerCalibration,
     IdealCandidateProfile,
+    InterviewSummaryResult,
     JobDescription,
     OutreachSequence,
     RoleInterviewQuestions,
@@ -310,6 +311,17 @@ def _fake_conversation_intelligence(**_) -> ConversationIntelligence:
     )
 
 
+def _fake_interview_summary(**_) -> InterviewSummaryResult:
+    return InterviewSummaryResult(
+        overview="(mock) Candidate walked through a five-year enterprise sales run, gave one detailed deal example, and asked clarifying questions about territory size.",
+        key_experience=["(mock) 5 years closing enterprise SaaS deals", "(mock) Managed a 9-month sales cycle across three stakeholders"],
+        technical_skills=["(mock) Salesforce", "(mock) MEDDIC qualification"],
+        examples_provided=["(mock) $1.2M ACV deal, 9-month cycle, three stakeholders"],
+        areas_not_discussed=["(mock) Team leadership experience", "(mock) International/cross-border deals"],
+        potential_followups=["(mock) Ask for a second deal example at a different deal size", "(mock) Validate team leadership claims from the resume"],
+    )
+
+
 def _fake_outreach(**_) -> OutreachSequence:
     return OutreachSequence(
         candidate_id="",
@@ -332,6 +344,7 @@ _BY_STAGE = {
     "outreach": _fake_outreach,
     "conversation_summary": _fake_conversation_summary,
     "conversation_intelligence": _fake_conversation_intelligence,
+    "interview_summary": _fake_interview_summary,
 }
 
 
@@ -343,6 +356,38 @@ def _fake_generate(prompt, output_model, *, model=llm_client.DEFAULT_MODEL, max_
 
 
 llm_client.generate = _fake_generate
+
+# Interview recording storage + transcription (Interview Intelligence,
+# Phase 1) — real production code needs RESUME_STORAGE_* (S3/R2) and
+# ASSEMBLYAI_API_KEY, neither of which this dev-only mock server has.
+# Stand in an in-memory "bucket" and a canned transcript so the full
+# record -> upload -> transcribe -> summarize pipeline is exercisable in
+# a real browser without either credential.
+_mock_interview_audio: dict[str, bytes] = {}
+
+
+def _fake_upload_interview_recording(interview_id: str, filename: str, content: bytes, content_type: str) -> str:
+    key = f"mock/interviews/{interview_id}/{filename}"
+    _mock_interview_audio[key] = content
+    return key
+
+
+def _fake_download_file(file_key: str) -> bytes | None:
+    return _mock_interview_audio.get(file_key)
+
+
+def _fake_transcribe(audio_bytes, content_type):
+    return [
+        {"speaker": "recruiter", "text": "(mock) Thanks for joining — walk me through your background.", "start_time": 0.0, "end_time": 4.0},
+        {"speaker": "candidate", "text": "(mock) Sure — I've spent the last five years in enterprise sales, most recently at Samsara.", "start_time": 4.5, "end_time": 12.0},
+        {"speaker": "recruiter", "text": "(mock) What's the largest deal you've closed?", "start_time": 12.5, "end_time": 15.0},
+        {"speaker": "candidate", "text": "(mock) A $1.2M ACV deal with a nine-month cycle across three stakeholders.", "start_time": 15.5, "end_time": 22.0},
+    ]
+
+
+file_storage.upload_interview_recording = _fake_upload_interview_recording
+file_storage.download_file = _fake_download_file
+transcription.transcribe = _fake_transcribe
 
 
 def _fake_run_chat_turn(role_id, user_message, history, *, storage_backend=db_storage, model=None):

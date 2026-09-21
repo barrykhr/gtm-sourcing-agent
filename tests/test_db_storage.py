@@ -629,3 +629,151 @@ def test_delete_job_removes_scoped_data(isolated_db):
 def test_delete_job_raises_for_missing_job(isolated_db):
     with pytest.raises(ValueError):
         db_storage.delete_job("no-such-job")
+
+
+# ── interview intelligence, phase 1 (notetaker) ─────────────────────────
+
+
+def test_create_interview_defaults_to_recording_status(isolated_db):
+    db_storage.create_job("job-a", title="A")
+    db_storage.merge_candidate("job-a", "cand-1", {"name": "Jane Doe"})
+    interview = db_storage.create_interview("job-a", "cand-1", "priya@example.com", "Technical Screening")
+    assert interview["status"] == "recording"
+    assert interview["role_id"] == "job-a"
+    assert interview["candidate_id"] == "cand-1"
+    assert interview["title"] == "Technical Screening"
+    assert interview["transcript_status"] == "pending"
+
+
+def test_create_interview_raises_for_missing_job(isolated_db):
+    with pytest.raises(ValueError):
+        db_storage.create_interview("no-such-job", "cand-1", "priya@example.com")
+
+
+def test_create_interview_raises_for_missing_candidate(isolated_db):
+    db_storage.create_job("job-a", title="A")
+    with pytest.raises(ValueError):
+        db_storage.create_interview("job-a", "no-such-candidate", "priya@example.com")
+
+
+def test_get_interview_returns_none_when_missing(isolated_db):
+    assert db_storage.get_interview("no-such-interview") is None
+
+
+def test_list_interviews_scoped_to_role_and_candidate(isolated_db):
+    db_storage.create_job("job-a", title="A")
+    db_storage.merge_candidate("job-a", "cand-1", {"name": "Jane Doe"})
+    db_storage.merge_candidate("job-a", "cand-2", {"name": "Marcus Chen"})
+    db_storage.create_interview("job-a", "cand-1", "priya@example.com", "First round")
+    db_storage.create_interview("job-a", "cand-1", "priya@example.com", "Second round")
+    db_storage.create_interview("job-a", "cand-2", "priya@example.com", "Other candidate")
+
+    interviews = db_storage.list_interviews("job-a", "cand-1")
+    assert len(interviews) == 2
+    assert {iv["title"] for iv in interviews} == {"First round", "Second round"}
+
+
+def test_update_interview_sets_fields(isolated_db):
+    db_storage.create_job("job-a", title="A")
+    db_storage.merge_candidate("job-a", "cand-1", {"name": "Jane Doe"})
+    interview = db_storage.create_interview("job-a", "cand-1", "priya@example.com")
+
+    updated = db_storage.update_interview(interview["id"], status="processing", transcript_status="processing")
+    assert updated["status"] == "processing"
+    assert updated["transcript_status"] == "processing"
+
+
+def test_update_interview_raises_for_missing_interview(isolated_db):
+    with pytest.raises(ValueError):
+        db_storage.update_interview("no-such-interview", status="failed")
+
+
+def test_save_and_get_transcript_segments_in_order(isolated_db):
+    db_storage.create_job("job-a", title="A")
+    db_storage.merge_candidate("job-a", "cand-1", {"name": "Jane Doe"})
+    interview = db_storage.create_interview("job-a", "cand-1", "priya@example.com")
+
+    db_storage.save_transcript_segments(interview["id"], [
+        {"speaker": "recruiter", "text": "Tell me about your n8n experience.", "start_time": 0.0, "end_time": 3.2},
+        {"speaker": "candidate", "text": "I built a lead enrichment workflow.", "start_time": 3.5, "end_time": 7.1},
+    ])
+
+    transcript = db_storage.get_transcript(interview["id"])
+    assert len(transcript) == 2
+    assert transcript[0]["speaker"] == "recruiter"
+    assert transcript[1]["speaker"] == "candidate"
+    assert transcript[0]["text"] == "Tell me about your n8n experience."
+
+
+def test_delete_transcript_segments_clears_them(isolated_db):
+    db_storage.create_job("job-a", title="A")
+    db_storage.merge_candidate("job-a", "cand-1", {"name": "Jane Doe"})
+    interview = db_storage.create_interview("job-a", "cand-1", "priya@example.com")
+    db_storage.save_transcript_segments(interview["id"], [
+        {"speaker": "recruiter", "text": "Hello.", "start_time": 0.0, "end_time": 1.0},
+    ])
+
+    db_storage.delete_transcript_segments(interview["id"])
+
+    assert db_storage.get_transcript(interview["id"]) == []
+
+
+def test_search_transcript_matches_substring_case_insensitively(isolated_db):
+    db_storage.create_job("job-a", title="A")
+    db_storage.merge_candidate("job-a", "cand-1", {"name": "Jane Doe"})
+    interview = db_storage.create_interview("job-a", "cand-1", "priya@example.com")
+    db_storage.save_transcript_segments(interview["id"], [
+        {"speaker": "candidate", "text": "I used Clay for lead enrichment.", "start_time": 0.0, "end_time": 3.0},
+        {"speaker": "recruiter", "text": "What about the API integration?", "start_time": 3.5, "end_time": 5.0},
+    ])
+
+    results = db_storage.search_transcript(interview["id"], "clay")
+    assert len(results) == 1
+    assert "Clay" in results[0]["text"]
+
+
+def test_search_transcript_empty_query_returns_nothing(isolated_db):
+    db_storage.create_job("job-a", title="A")
+    db_storage.merge_candidate("job-a", "cand-1", {"name": "Jane Doe"})
+    interview = db_storage.create_interview("job-a", "cand-1", "priya@example.com")
+    assert db_storage.search_transcript(interview["id"], "") == []
+
+
+def test_set_segment_speaker_corrects_a_label(isolated_db):
+    db_storage.create_job("job-a", title="A")
+    db_storage.merge_candidate("job-a", "cand-1", {"name": "Jane Doe"})
+    interview = db_storage.create_interview("job-a", "cand-1", "priya@example.com")
+    db_storage.save_transcript_segments(interview["id"], [
+        {"speaker": "recruiter", "text": "Misattributed line.", "start_time": 0.0, "end_time": 1.0},
+    ])
+    segment_id = db_storage.get_transcript(interview["id"])[0]["id"]
+
+    corrected = db_storage.set_segment_speaker(interview["id"], segment_id, "candidate")
+    assert corrected["speaker"] == "candidate"
+
+
+def test_set_segment_speaker_rejects_invalid_speaker(isolated_db):
+    db_storage.create_job("job-a", title="A")
+    db_storage.merge_candidate("job-a", "cand-1", {"name": "Jane Doe"})
+    interview = db_storage.create_interview("job-a", "cand-1", "priya@example.com")
+    db_storage.save_transcript_segments(interview["id"], [
+        {"speaker": "recruiter", "text": "Hello.", "start_time": 0.0, "end_time": 1.0},
+    ])
+    segment_id = db_storage.get_transcript(interview["id"])[0]["id"]
+
+    with pytest.raises(ValueError):
+        db_storage.set_segment_speaker(interview["id"], segment_id, "interviewer")
+
+
+def test_delete_job_cascades_to_interviews_and_transcript(isolated_db):
+    db_storage.create_job("job-a", title="A")
+    db_storage.merge_candidate("job-a", "cand-1", {"name": "Jane Doe"})
+    interview = db_storage.create_interview("job-a", "cand-1", "priya@example.com")
+    db_storage.save_transcript_segments(interview["id"], [
+        {"speaker": "recruiter", "text": "Hello.", "start_time": 0.0, "end_time": 1.0},
+    ])
+
+    db_storage.delete_job("job-a")
+
+    assert db_storage.get_interview(interview["id"]) is None
+    assert db_storage.get_transcript(interview["id"]) == []

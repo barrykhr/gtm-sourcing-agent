@@ -12,6 +12,7 @@ from .interview_questions import (
 from .outreach import OutreachSequence
 from .conversation import ConversationIntelligence, ConversationSummaryResult
 from .funnel import FunnelStage, FunnelRecord, FunnelMetrics, ForecastAssumptions, ForecastResult
+from .interview import InterviewSummaryResult
 
 __all__ = [
     "JobDescription",
@@ -39,4 +40,5 @@ __all__ = [
     "FunnelMetrics",
     "ForecastAssumptions",
     "ForecastResult",
+    "InterviewSummaryResult",
 ]

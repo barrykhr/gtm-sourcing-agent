@@ -697,6 +697,77 @@ export const logCommunication = async (
   return resp;
 };
 
+// ── interview intelligence, phase 1 (notetaker) ─────────────────────────
+// Recording -> transcription -> speaker-labeled transcript -> AI summary.
+// Distinct from the communications log above (channel="call") — this is
+// a real recording with a real transcript, not a recruiter-typed note.
+
+export type InterviewStatus = "recording" | "processing" | "completed" | "failed";
+export type PipelineStageStatus = "pending" | "processing" | "completed" | "failed";
+
+export type InterviewSummary = {
+  overview: string;
+  key_experience: string[];
+  technical_skills: string[];
+  examples_provided: string[];
+  areas_not_discussed: string[];
+  potential_followups: string[];
+};
+
+export type Interview = {
+  id: string;
+  role_id: string;
+  candidate_id: string;
+  recruiter_email: string;
+  title: string;
+  status: InterviewStatus;
+  recording_file_key: string | null;
+  recording_filename: string | null;
+  recording_content_type: string | null;
+  transcript_status: PipelineStageStatus;
+  intelligence_status: PipelineStageStatus;
+  summary: InterviewSummary | null;
+  error: string | null;
+  started_at: string;
+  ended_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type TranscriptSegment = {
+  id: number;
+  speaker: "recruiter" | "candidate" | "unknown";
+  text: string;
+  start_time: number;
+  end_time: number;
+};
+
+export const createInterview = (roleId: string, candidateId: string, title = "") =>
+  post<Interview>(`/jobs/${roleId}/candidates/${candidateId}/interviews`, { title });
+
+export const listInterviews = (roleId: string, candidateId: string) =>
+  get<Interview[]>(`/jobs/${roleId}/candidates/${candidateId}/interviews`);
+
+export const getInterview = (interviewId: string) => get<Interview>(`/interviews/${interviewId}`);
+
+export const completeInterview = (interviewId: string) =>
+  post<Interview>(`/interviews/${interviewId}/complete`);
+
+export const uploadInterviewRecording = async (interviewId: string, file: File | Blob, filename: string) => {
+  const formData = new FormData();
+  formData.append("file", file, filename);
+  return postForm<Task>(`/interviews/${interviewId}/recording`, formData);
+};
+
+export const retryInterviewProcessing = (interviewId: string) =>
+  post<Task>(`/interviews/${interviewId}/retry`);
+
+export const getTranscript = (interviewId: string, query?: string) =>
+  get<TranscriptSegment[]>(`/interviews/${interviewId}/transcript${query ? `?q=${encodeURIComponent(query)}` : ""}`);
+
+export const correctSegmentSpeaker = (interviewId: string, segmentId: number, speaker: TranscriptSegment["speaker"]) =>
+  patch<TranscriptSegment>(`/interviews/${interviewId}/transcript/${segmentId}/speaker`, { speaker });
+
 // ── integrations / outbound webhook (Phase 8) ──────────────────────────
 // A real HTTP POST to a URL the recruiter configures for their own job —
 // see webhooks.py's module docstring. Fires automatically on a "pursue"

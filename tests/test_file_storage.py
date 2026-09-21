@@ -82,3 +82,32 @@ def test_get_resume_download_url_returns_a_usable_url(configured):
     assert url is not None
     assert BUCKET in url
     assert key.split("/")[-1] in url
+
+
+def test_upload_interview_recording_returns_none_when_not_configured(unconfigured):
+    assert file_storage.upload_interview_recording("interview-1", "rec.webm", b"audio bytes", "audio/webm") is None
+
+
+def test_upload_interview_recording_round_trips_content(configured):
+    key = file_storage.upload_interview_recording("interview-1", "rec.webm", b"audio bytes here", "audio/webm")
+    assert key is not None
+    assert key.startswith("interviews/interview-1/")
+    assert key.endswith("-rec.webm")
+
+    client = boto3.client("s3", region_name="us-east-1")
+    obj = client.get_object(Bucket=BUCKET, Key=key)
+    assert obj["Body"].read() == b"audio bytes here"
+    assert obj["ContentType"] == "audio/webm"
+
+
+def test_download_file_returns_none_when_not_configured(unconfigured):
+    assert file_storage.download_file("interviews/interview-1/whatever.webm") is None
+
+
+def test_download_file_returns_the_uploaded_bytes(configured):
+    key = file_storage.upload_interview_recording("interview-1", "rec.webm", b"audio bytes here", "audio/webm")
+    assert file_storage.download_file(key) == b"audio bytes here"
+
+
+def test_download_file_returns_none_for_a_missing_key(configured):
+    assert file_storage.download_file("interviews/does-not-exist/nope.webm") is None

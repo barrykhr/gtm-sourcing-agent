@@ -318,3 +318,63 @@ class WorkspaceSettings(Base):
     followup_template: Mapped[str] = mapped_column(String, default=_DEFAULT_FOLLOWUP_TEMPLATE)
     auto_send_followups: Mapped[bool] = mapped_column(default=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
+
+
+class InterviewSession(Base):
+    """Interview Intelligence, Phase 1 (Notetaker) — one recorded
+    interview for one candidate on one role. Distinct from
+    CommunicationLogEntry's `channel="call"` rows (a recruiter-typed note
+    that a call happened, no real transcript): this is a real recording,
+    transcribed by a real speech-to-text provider (see transcription.py),
+    with a timestamped, speaker-labeled transcript (TranscriptSegment
+    below) a recruiter can search and replay. `candidate_evaluation_id`
+    is CandidateEvaluation's job-scoped id (not its integer PK), same FK
+    style CommunicationLogEntry already uses.
+
+    `status` is the overall lifecycle: "recording" (in progress, no
+    audio yet) -> "processing" (uploaded, pipeline running) ->
+    "completed" | "failed". `transcript_status` and `intelligence_status`
+    track the two pipeline stages separately so the UI can show granular
+    progress (Phase 2 adds real content to intelligence_status; Phase 1
+    only ever sets it "pending", reserved for that later batch).
+    `summary` is the InterviewSummaryResult .model_dump(), null until
+    transcription + summarization finish."""
+
+    __tablename__ = "interview_sessions"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    role_id: Mapped[str] = mapped_column(ForeignKey("jobs.role_id"))
+    candidate_evaluation_id: Mapped[str] = mapped_column(String)
+    recruiter_email: Mapped[str] = mapped_column(String, default="")
+    title: Mapped[str] = mapped_column(String, default="")
+    status: Mapped[str] = mapped_column(String, default="recording")
+    recording_file_key: Mapped[str | None] = mapped_column(String, default=None)
+    recording_filename: Mapped[str | None] = mapped_column(String, default=None)
+    recording_content_type: Mapped[str | None] = mapped_column(String, default=None)
+    transcript_status: Mapped[str] = mapped_column(String, default="pending")
+    intelligence_status: Mapped[str] = mapped_column(String, default="pending")
+    summary: Mapped[dict | None] = mapped_column(JSON, default=None)
+    error: Mapped[str | None] = mapped_column(String, default=None)
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
+
+
+class TranscriptSegment(Base):
+    """One diarized utterance from an interview recording — see
+    InterviewSession above and transcription.py. `speaker` starts as
+    whatever the transcription provider's diarization + our
+    first-speaker-is-the-recruiter heuristic produced, and can be
+    corrected afterward by the recruiter (db_storage.set_segment_speaker)
+    without ever pretending the original guess was certain."""
+
+    __tablename__ = "transcript_segments"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    interview_id: Mapped[str] = mapped_column(ForeignKey("interview_sessions.id"))
+    sequence: Mapped[int] = mapped_column(default=0)
+    speaker: Mapped[str] = mapped_column(String, default="unknown")
+    text: Mapped[str] = mapped_column(String, default="")
+    start_time: Mapped[float] = mapped_column(Float, default=0.0)
+    end_time: Mapped[float] = mapped_column(Float, default=0.0)

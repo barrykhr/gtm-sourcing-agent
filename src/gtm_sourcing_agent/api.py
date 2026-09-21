@@ -13,6 +13,7 @@ import logging
 import os
 import re
 import unicodedata
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
@@ -33,6 +34,7 @@ from .stages import conversation_summary as conversation_summary_stage
 from .stages import funnel as funnel_stage
 from .stages import icp as icp_stage
 from .stages import intake as intake_stage
+from .stages import interview_processing as interview_processing_stage
 from .stages import interview_questions as interview_questions_stage
 from .stages import outreach as outreach_stage
 from .stages import prioritization as prioritization_stage
@@ -908,6 +910,10 @@ def _run_conversation_intelligence(role_id: str, args: dict[str, Any]) -> dict[s
     ).model_dump()
 
 
+def _run_process_interview(role_id: str, args: dict[str, Any]) -> dict[str, Any]:
+    return interview_processing_stage.run(args["interview_id"])
+
+
 for _kind, _fn in [
     ("intake", _run_intake),
     ("calibrate", _run_calibrate),
@@ -921,6 +927,7 @@ for _kind, _fn in [
     ("outreach", _run_outreach),
     ("conversation_summary", _run_conversation_summary),
     ("conversation_intelligence", _run_conversation_intelligence),
+    ("process_interview", _run_process_interview),
 ]:
     task_queue.register_runner(_kind, _fn)
 
@@ -1412,6 +1419,116 @@ def log_communication(
     task = task_queue.enqueue(role_id, "conversation_summary", {"candidate_id": candidate_id})
     intelligence_task = task_queue.enqueue(role_id, "conversation_intelligence", {"candidate_id": candidate_id})
     return {"entry": entry, "summary_task": task, "intelligence_task": intelligence_task}
+
+
+# ── interview intelligence, phase 1 (notetaker) ─────────────────────────
+# Recording -> transcription -> speaker-labeled transcript -> AI summary.
+# See stages/interview_processing.py for the pipeline and
+# transcription.py for the speech-to-text provider. Distinct from the
+# communications log above (channel="call") — this is a real recording
+# with a real transcript, not a recruiter-typed note that a call
+# happened.
+
+
+class CreateInterviewRequest(BaseModel):
+    title: str = ""
+
+
+@app.post("/jobs/{role_id}/candidates/{candidate_id}/interviews", status_code=201)
+def create_interview(
+    role_id: str, candidate_id: str, body: CreateInterviewRequest, request: Request
+) -> dict[str, Any]:
+    interview = _run_stage(
+        db_storage.create_interview, role_id, candidate_id, request.state.user["email"], body.title
+    )
+    _log(request, role_id, "started interview", candidate_id=candidate_id, detail=body.title)
+    return interview
+
+
+@app.get("/jobs/{role_id}/candidates/{candidate_id}/interviews")
+def list_interviews(role_id: str, candidate_id: str) -> list[dict[str, Any]]:
+    if not db_storage.job_exists(role_id):
+        raise HTTPException(status_code=404, detail=f"job '{role_id}' not found")
+    return db_storage.list_interviews(role_id, candidate_id)
+
+
+@app.get("/interviews/{interview_id}")
+def get_interview(interview_id: str) -> dict[str, Any]:
+    interview = db_storage.get_interview(interview_id)
+    if interview is None:
+        raise HTTPException(status_code=404, detail=f"interview '{interview_id}' not found")
+    return interview
+
+
+@app.post("/interviews/{interview_id}/complete")
+def complete_interview(interview_id: str, request: Request) -> dict[str, Any]:
+    """Marks the recording phase over — called right when the recruiter
+    clicks "End interview", before the audio file itself has necessarily
+    finished uploading. Separate from the upload route below since the
+    two can genuinely happen a few seconds apart (stopping MediaRecorder
+    vs. the upload request completing)."""
+    interview = _run_stage(db_storage.update_interview, interview_id, status="processing", ended_at=datetime.now(UTC))
+    _log(request, interview["role_id"], "ended interview", candidate_id=interview["candidate_id"])
+    return interview
+
+
+@app.post("/interviews/{interview_id}/recording", status_code=202)
+async def upload_interview_recording(interview_id: str, request: Request, file: UploadFile = File(...)) -> dict[str, Any]:
+    interview = db_storage.get_interview(interview_id)
+    if interview is None:
+        raise HTTPException(status_code=404, detail=f"interview '{interview_id}' not found")
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="the uploaded recording is empty")
+    file_key = file_storage.upload_interview_recording(
+        interview_id, file.filename or "recording.webm", content, file.content_type or "audio/webm"
+    )
+    if file_key is None:
+        db_storage.update_interview(
+            interview_id, status="failed", error="audio storage is not configured on this server"
+        )
+        raise HTTPException(
+            status_code=503, detail="audio storage is not configured on this server (RESUME_STORAGE_* env vars)"
+        )
+    db_storage.update_interview(
+        interview_id, recording_file_key=file_key, recording_filename=file.filename,
+        recording_content_type=file.content_type, status="processing",
+    )
+    _log(request, interview["role_id"], "uploaded interview recording", candidate_id=interview["candidate_id"])
+    return task_queue.enqueue(interview["role_id"], "process_interview", {"interview_id": interview_id})
+
+
+@app.post("/interviews/{interview_id}/retry", status_code=202)
+def retry_interview_processing(interview_id: str) -> dict[str, Any]:
+    """Lets the recruiter retry after a failed transcription/summary run
+    (a transient provider error, a rate limit) without re-recording —
+    the original audio file is never touched by a failure, so it's
+    always still there to reprocess."""
+    interview = db_storage.get_interview(interview_id)
+    if interview is None:
+        raise HTTPException(status_code=404, detail=f"interview '{interview_id}' not found")
+    if not interview["recording_file_key"]:
+        raise HTTPException(status_code=400, detail="this interview has no recording to reprocess")
+    db_storage.update_interview(interview_id, status="processing", error=None)
+    return task_queue.enqueue(interview["role_id"], "process_interview", {"interview_id": interview_id})
+
+
+@app.get("/interviews/{interview_id}/transcript")
+def get_transcript(interview_id: str, q: str | None = None) -> list[dict[str, Any]]:
+    if db_storage.get_interview(interview_id) is None:
+        raise HTTPException(status_code=404, detail=f"interview '{interview_id}' not found")
+    if q:
+        return db_storage.search_transcript(interview_id, q)
+    return db_storage.get_transcript(interview_id)
+
+
+class UpdateSegmentSpeakerRequest(BaseModel):
+    speaker: str
+
+
+@app.patch("/interviews/{interview_id}/transcript/{segment_id}/speaker")
+def correct_segment_speaker(interview_id: str, segment_id: int, body: UpdateSegmentSpeakerRequest) -> dict[str, Any]:
+    return _run_stage(db_storage.set_segment_speaker, interview_id, segment_id, body.speaker)
 
 
 # ── funnel ───────────────────────────────────────────────────────────────

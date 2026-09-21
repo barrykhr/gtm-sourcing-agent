@@ -29,7 +29,7 @@ dependencies = [
                         # for local test runs, masking a missing-dependency crash until a
                         # real deploy hits /auth/google
     "boto3>=1.34",  # S3-compatible object storage for resume files (file_storage.py)
-    "httpx>=0.27",  # outbound webhook delivery (webhooks.py) at runtime -- not dev-only
+    "httpx>=0.27",  # outbound webhook delivery (webhooks.py) + AssemblyAI calls (transcription.py) -- not dev-only
 ]
 
 [project.optional-dependencies]

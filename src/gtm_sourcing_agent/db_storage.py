@@ -34,8 +34,8 @@ from sqlalchemy.orm import Session
 
 from . import db, file_storage, revenue
 from .models_orm import (
-    ActivityLog, CandidateEvaluation, CanonicalCandidate, CommunicationLogEntry, Job, JobRecruiter, JobSection,
-    Task, User, WorkspaceSettings,
+    ActivityLog, CandidateEvaluation, CanonicalCandidate, CommunicationLogEntry, InterviewSession, Job,
+    JobRecruiter, JobSection, Task, TranscriptSegment, User, WorkspaceSettings,
 )
 
 logger = logging.getLogger(__name__)
@@ -864,16 +864,18 @@ def job_exists(role_id: str) -> bool:
 
 def delete_job(role_id: str) -> None:
     """Permanently deletes a job and everything scoped to it: sections,
-    recruiter assignments, tasks, activity log, communication log, and
-    this job's candidate evaluations. A CanonicalCandidate is global
-    (reusable across jobs — see its docstring), so it's only deleted
-    once it has no evaluations left anywhere, not just in this job;
-    deleting a job a candidate was *also* evaluated in elsewhere leaves
-    that candidate and its other evaluation untouched. Irreversible —
-    api.py gates this behind require_role("admin")."""
+    recruiter assignments, tasks, activity log, communication log,
+    interviews (recordings + transcripts), and this job's candidate
+    evaluations. A CanonicalCandidate is global (reusable across jobs —
+    see its docstring), so it's only deleted once it has no evaluations
+    left anywhere, not just in this job; deleting a job a candidate was
+    *also* evaluated in elsewhere leaves that candidate and its other
+    evaluation untouched. Irreversible — api.py gates this behind
+    require_role("admin")."""
     if not job_exists(role_id):
         raise ValueError(f"job '{role_id}' not found")
     resume_keys: list[str] = []
+    recording_keys: list[str] = []
     with db.get_session() as session:
         resume_keys = [
             key for (key,) in session.execute(
@@ -886,6 +888,18 @@ def delete_job(role_id: str) -> None:
                 select(CandidateEvaluation.canonical_candidate_id).where(CandidateEvaluation.role_id == role_id)
             )
         ]
+        interview_ids = [
+            iid for (iid,) in session.execute(select(InterviewSession.id).where(InterviewSession.role_id == role_id))
+        ]
+        recording_keys = [
+            key for (key,) in session.execute(
+                select(InterviewSession.recording_file_key)
+                .where(InterviewSession.role_id == role_id, InterviewSession.recording_file_key.is_not(None))
+            )
+        ]
+        if interview_ids:
+            session.execute(delete(TranscriptSegment).where(TranscriptSegment.interview_id.in_(interview_ids)))
+        session.execute(delete(InterviewSession).where(InterviewSession.role_id == role_id))
         session.execute(delete(CommunicationLogEntry).where(CommunicationLogEntry.role_id == role_id))
         session.execute(delete(Task).where(Task.role_id == role_id))
         session.execute(delete(ActivityLog).where(ActivityLog.role_id == role_id))
@@ -909,6 +923,8 @@ def delete_job(role_id: str) -> None:
         session.execute(delete(Job).where(Job.role_id == role_id))
         session.commit()
     for key in resume_keys:
+        file_storage.delete_resume(key)
+    for key in recording_keys:
         file_storage.delete_resume(key)
 
 
@@ -1510,3 +1526,135 @@ def due_followups() -> list[dict[str, Any]]:
                 ),
             })
         return due
+
+
+# ── interview intelligence, phase 1 (notetaker) ─────────────────────────
+
+
+def _interview_dict(iv: InterviewSession) -> dict[str, Any]:
+    return {
+        "id": iv.id, "role_id": iv.role_id, "candidate_id": iv.candidate_evaluation_id,
+        "recruiter_email": iv.recruiter_email, "title": iv.title, "status": iv.status,
+        "recording_file_key": iv.recording_file_key, "recording_filename": iv.recording_filename,
+        "recording_content_type": iv.recording_content_type,
+        "transcript_status": iv.transcript_status, "intelligence_status": iv.intelligence_status,
+        "summary": iv.summary, "error": iv.error,
+        "started_at": iv.started_at.isoformat(), "ended_at": iv.ended_at.isoformat() if iv.ended_at else None,
+        "created_at": iv.created_at.isoformat(), "updated_at": iv.updated_at.isoformat(),
+    }
+
+
+def create_interview(role_id: str, candidate_id: str, recruiter_email: str, title: str = "") -> dict[str, Any]:
+    with db.get_session() as session:
+        if session.get(Job, role_id) is None:
+            raise ValueError(f"job '{role_id}' not found")
+        eval_row = session.scalars(
+            select(CandidateEvaluation).where(
+                CandidateEvaluation.role_id == role_id,
+                CandidateEvaluation.candidate_evaluation_id == candidate_id,
+            )
+        ).first()
+        if eval_row is None:
+            raise ValueError(f"candidate '{candidate_id}' not found for role '{role_id}'")
+        interview = InterviewSession(
+            id=f"interview-{uuid.uuid4().hex[:12]}", role_id=role_id, candidate_evaluation_id=candidate_id,
+            recruiter_email=recruiter_email, title=title, status="recording",
+        )
+        session.add(interview)
+        session.commit()
+        return _interview_dict(interview)
+
+
+def get_interview(interview_id: str) -> dict[str, Any] | None:
+    with db.get_session() as session:
+        iv = session.get(InterviewSession, interview_id)
+        return _interview_dict(iv) if iv else None
+
+
+def list_interviews(role_id: str, candidate_id: str) -> list[dict[str, Any]]:
+    with db.get_session() as session:
+        rows = session.scalars(
+            select(InterviewSession)
+            .where(InterviewSession.role_id == role_id, InterviewSession.candidate_evaluation_id == candidate_id)
+            .order_by(InterviewSession.started_at.desc())
+        ).all()
+        return [_interview_dict(r) for r in rows]
+
+
+def update_interview(interview_id: str, **fields: Any) -> dict[str, Any]:
+    """Generic field-setter used by the interview pipeline (status/
+    transcript_status/intelligence_status/summary/error) and by the
+    upload/complete/retry routes. Callers pass only the fields they're
+    actually changing; unknown keys would raise AttributeError, so this
+    is only ever called with real InterviewSession column names."""
+    with db.get_session() as session:
+        iv = session.get(InterviewSession, interview_id)
+        if iv is None:
+            raise ValueError(f"interview '{interview_id}' not found")
+        for key, value in fields.items():
+            setattr(iv, key, value)
+        session.commit()
+        return _interview_dict(iv)
+
+
+def save_transcript_segments(interview_id: str, segments: list[dict[str, Any]]) -> None:
+    """Appends segments in order — never called twice for the same
+    interview in normal operation (a retry re-transcribes from scratch,
+    see api.py's /interviews/{id}/retry, which the caller is expected to
+    clear old segments for first via delete_transcript_segments)."""
+    with db.get_session() as session:
+        for i, seg in enumerate(segments):
+            session.add(TranscriptSegment(
+                interview_id=interview_id, sequence=i, speaker=seg["speaker"], text=seg["text"],
+                start_time=seg["start_time"], end_time=seg["end_time"],
+            ))
+        session.commit()
+
+
+def delete_transcript_segments(interview_id: str) -> None:
+    with db.get_session() as session:
+        session.execute(delete(TranscriptSegment).where(TranscriptSegment.interview_id == interview_id))
+        session.commit()
+
+
+def get_transcript(interview_id: str) -> list[dict[str, Any]]:
+    with db.get_session() as session:
+        rows = session.scalars(
+            select(TranscriptSegment).where(TranscriptSegment.interview_id == interview_id)
+            .order_by(TranscriptSegment.sequence)
+        ).all()
+        return [
+            {"id": r.id, "speaker": r.speaker, "text": r.text, "start_time": r.start_time, "end_time": r.end_time}
+            for r in rows
+        ]
+
+
+def search_transcript(interview_id: str, query: str) -> list[dict[str, Any]]:
+    q = query.strip()
+    if not q:
+        return []
+    with db.get_session() as session:
+        rows = session.scalars(
+            select(TranscriptSegment)
+            .where(TranscriptSegment.interview_id == interview_id, TranscriptSegment.text.ilike(f"%{q}%"))
+            .order_by(TranscriptSegment.sequence)
+        ).all()
+        return [
+            {"id": r.id, "speaker": r.speaker, "text": r.text, "start_time": r.start_time, "end_time": r.end_time}
+            for r in rows
+        ]
+
+
+def set_segment_speaker(interview_id: str, segment_id: int, speaker: str) -> dict[str, Any]:
+    if speaker not in ("recruiter", "candidate", "unknown"):
+        raise ValueError("speaker must be 'recruiter', 'candidate', or 'unknown'")
+    with db.get_session() as session:
+        seg = session.get(TranscriptSegment, segment_id)
+        if seg is None or seg.interview_id != interview_id:
+            raise ValueError(f"transcript segment '{segment_id}' not found for interview '{interview_id}'")
+        seg.speaker = speaker
+        session.commit()
+        return {
+            "id": seg.id, "speaker": seg.speaker, "text": seg.text,
+            "start_time": seg.start_time, "end_time": seg.end_time,
+        }
