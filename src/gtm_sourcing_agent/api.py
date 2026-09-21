@@ -34,6 +34,7 @@ from .stages import conversation_summary as conversation_summary_stage
 from .stages import funnel as funnel_stage
 from .stages import icp as icp_stage
 from .stages import intake as intake_stage
+from .stages import interview_intelligence as interview_intelligence_stage
 from .stages import interview_processing as interview_processing_stage
 from .stages import interview_questions as interview_questions_stage
 from .stages import outreach as outreach_stage
@@ -914,6 +915,14 @@ def _run_process_interview(role_id: str, args: dict[str, Any]) -> dict[str, Any]
     return interview_processing_stage.run(args["interview_id"])
 
 
+def _run_analyze_interview(role_id: str, args: dict[str, Any]) -> dict[str, Any]:
+    return interview_intelligence_stage.run(args["interview_id"])
+
+
+def _run_ask_interview_question(role_id: str, args: dict[str, Any]) -> dict[str, Any]:
+    return interview_intelligence_stage.ask(args["interview_id"], args["question"])
+
+
 for _kind, _fn in [
     ("intake", _run_intake),
     ("calibrate", _run_calibrate),
@@ -928,6 +937,8 @@ for _kind, _fn in [
     ("conversation_summary", _run_conversation_summary),
     ("conversation_intelligence", _run_conversation_intelligence),
     ("process_interview", _run_process_interview),
+    ("analyze_interview", _run_analyze_interview),
+    ("ask_interview_question", _run_ask_interview_question),
 ]:
     task_queue.register_runner(_kind, _fn)
 
@@ -1529,6 +1540,55 @@ class UpdateSegmentSpeakerRequest(BaseModel):
 @app.patch("/interviews/{interview_id}/transcript/{segment_id}/speaker")
 def correct_segment_speaker(interview_id: str, segment_id: int, body: UpdateSegmentSpeakerRequest) -> dict[str, Any]:
     return _run_stage(db_storage.set_segment_speaker, interview_id, segment_id, body.speaker)
+
+
+# ── interview intelligence, phase 2 ──────────────────────────────────────
+# Maps the job's must-have/nice-to-have requirements onto this specific
+# interview's transcript: a per-competency evidence-strength scorecard
+# ("Strong evidence" / "Needs validation" / "Not discussed" /
+# "Insufficient evidence"), the transcript segments behind each status,
+# and suggested follow-up questions. Never a hire/reject signal — see
+# stages/interview_intelligence.py and prompts/interview_intelligence.md.
+# Callable again any time (re-analyzing replaces the prior scorecard),
+# so there's no separate retry route the way Phase 1's provider-call
+# pipeline needed one.
+
+
+@app.post("/interviews/{interview_id}/analyze", status_code=202)
+def analyze_interview(interview_id: str, request: Request) -> dict[str, Any]:
+    interview = db_storage.get_interview(interview_id)
+    if interview is None:
+        raise HTTPException(status_code=404, detail=f"interview '{interview_id}' not found")
+    if interview["transcript_status"] != "completed":
+        raise HTTPException(status_code=400, detail="the transcript must finish processing before intelligence can run")
+    _log(request, interview["role_id"], "requested interview intelligence", candidate_id=interview["candidate_id"])
+    return task_queue.enqueue(interview["role_id"], "analyze_interview", {"interview_id": interview_id})
+
+
+@app.get("/interviews/{interview_id}/intelligence")
+def get_interview_intelligence(interview_id: str) -> dict[str, Any]:
+    if db_storage.get_interview(interview_id) is None:
+        raise HTTPException(status_code=404, detail=f"interview '{interview_id}' not found")
+    return db_storage.get_interview_intelligence(interview_id)
+
+
+class AskInterviewRequest(BaseModel):
+    question: str
+
+
+@app.post("/interviews/{interview_id}/ask", status_code=202)
+def ask_interview_question(interview_id: str, body: AskInterviewRequest, request: Request) -> dict[str, Any]:
+    interview = db_storage.get_interview(interview_id)
+    if interview is None:
+        raise HTTPException(status_code=404, detail=f"interview '{interview_id}' not found")
+    if not body.question.strip():
+        raise HTTPException(status_code=400, detail="question is required")
+    if interview["transcript_status"] != "completed":
+        raise HTTPException(status_code=400, detail="the transcript must finish processing before you can ask questions")
+    _log(request, interview["role_id"], "asked a question about an interview", candidate_id=interview["candidate_id"])
+    return task_queue.enqueue(
+        interview["role_id"], "ask_interview_question", {"interview_id": interview_id, "question": body.question}
+    )
 
 
 # ── funnel ───────────────────────────────────────────────────────────────

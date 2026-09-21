@@ -20,12 +20,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from gtm_sourcing_agent import db_storage, file_storage, llm_client, orchestrator, transcription  # noqa: E402
 from gtm_sourcing_agent.models import (  # noqa: E402
+    AskInterviewAnswer,
     Candidate,
     CandidatePrioritization,
+    CompetencyEvidenceRef,
     ConversationIntelligence,
     ConversationSummaryResult,
+    FollowUpQuestionResult,
     HiringManagerCalibration,
     IdealCandidateProfile,
+    InterviewCompetencyResult,
+    InterviewIntelligenceResult,
     InterviewSummaryResult,
     JobDescription,
     OutreachSequence,
@@ -322,6 +327,49 @@ def _fake_interview_summary(**_) -> InterviewSummaryResult:
     )
 
 
+def _fake_interview_intelligence(**_) -> InterviewIntelligenceResult:
+    # Indices below line up with _fake_transcribe's canned 4-segment
+    # transcript (mock_llm_server.py's file_storage/transcription mocks,
+    # below) — [0] recruiter asks background, [1] candidate: 5 years
+    # enterprise sales, [2] recruiter asks about largest deal, [3]
+    # candidate: $1.2M ACV / nine-month cycle / three stakeholders.
+    return InterviewIntelligenceResult(
+        competencies=[
+            InterviewCompetencyResult(
+                competency="(mock) 5+ years closing enterprise SaaS deals", category="must_have",
+                status="Strong evidence",
+                rationale="(mock) Candidate directly stated five years in enterprise sales, most recently at Samsara.",
+                evidence=[CompetencyEvidenceRef(segment_index=1, note="(mock) states years of experience")],
+            ),
+            InterviewCompetencyResult(
+                competency="(mock) History of $1M+ quota attainment", category="must_have",
+                status="Needs validation",
+                rationale="(mock) Candidate described a $1.2M deal but never stated overall quota attainment.",
+                evidence=[CompetencyEvidenceRef(segment_index=3, note="(mock) largest deal, not quota attainment")],
+            ),
+            InterviewCompetencyResult(
+                competency="(mock) Industrial/manufacturing domain experience", category="nice_to_have",
+                status="Not discussed", rationale="(mock) Never came up in this conversation.", evidence=[],
+            ),
+        ],
+        follow_up_questions=[
+            FollowUpQuestionResult(
+                question="(mock) What was your quota attainment percentage over the last two years?",
+                rationale="(mock) Closes the gap on quota attainment, which the $1.2M deal example doesn't confirm on its own.",
+                related_competency="(mock) History of $1M+ quota attainment",
+            ),
+        ],
+    )
+
+
+def _fake_ask_interview_question(**_) -> AskInterviewAnswer:
+    return AskInterviewAnswer(
+        answer="(mock) The candidate described closing a $1.2M ACV deal with a nine-month sales cycle across three stakeholders.",
+        citations=[CompetencyEvidenceRef(segment_index=3)],
+        unable_to_answer=False,
+    )
+
+
 def _fake_outreach(**_) -> OutreachSequence:
     return OutreachSequence(
         candidate_id="",
@@ -345,6 +393,8 @@ _BY_STAGE = {
     "conversation_summary": _fake_conversation_summary,
     "conversation_intelligence": _fake_conversation_intelligence,
     "interview_summary": _fake_interview_summary,
+    "interview_intelligence": _fake_interview_intelligence,
+    "ask_interview_question": _fake_ask_interview_question,
 }
 
 

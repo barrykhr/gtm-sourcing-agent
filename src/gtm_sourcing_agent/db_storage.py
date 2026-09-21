@@ -34,8 +34,9 @@ from sqlalchemy.orm import Session
 
 from . import db, file_storage, revenue
 from .models_orm import (
-    ActivityLog, CandidateEvaluation, CanonicalCandidate, CommunicationLogEntry, InterviewSession, Job,
-    JobRecruiter, JobSection, Task, TranscriptSegment, User, WorkspaceSettings,
+    ActivityLog, CandidateEvaluation, CanonicalCandidate, CommunicationLogEntry, FollowUpQuestion,
+    InterviewCompetency, InterviewEvidence, InterviewSession, Job, JobRecruiter, JobSection, Task,
+    TranscriptSegment, User, WorkspaceSettings,
 )
 
 logger = logging.getLogger(__name__)
@@ -898,6 +899,15 @@ def delete_job(role_id: str) -> None:
             )
         ]
         if interview_ids:
+            competency_ids = [
+                cid for (cid,) in session.execute(
+                    select(InterviewCompetency.id).where(InterviewCompetency.interview_id.in_(interview_ids))
+                )
+            ]
+            if competency_ids:
+                session.execute(delete(InterviewEvidence).where(InterviewEvidence.competency_id.in_(competency_ids)))
+            session.execute(delete(InterviewCompetency).where(InterviewCompetency.interview_id.in_(interview_ids)))
+            session.execute(delete(FollowUpQuestion).where(FollowUpQuestion.interview_id.in_(interview_ids)))
             session.execute(delete(TranscriptSegment).where(TranscriptSegment.interview_id.in_(interview_ids)))
         session.execute(delete(InterviewSession).where(InterviewSession.role_id == role_id))
         session.execute(delete(CommunicationLogEntry).where(CommunicationLogEntry.role_id == role_id))
@@ -1538,7 +1548,7 @@ def _interview_dict(iv: InterviewSession) -> dict[str, Any]:
         "recording_file_key": iv.recording_file_key, "recording_filename": iv.recording_filename,
         "recording_content_type": iv.recording_content_type,
         "transcript_status": iv.transcript_status, "intelligence_status": iv.intelligence_status,
-        "summary": iv.summary, "error": iv.error,
+        "summary": iv.summary, "error": iv.error, "intelligence_error": iv.intelligence_error,
         "started_at": iv.started_at.isoformat(), "ended_at": iv.ended_at.isoformat() if iv.ended_at else None,
         "created_at": iv.created_at.isoformat(), "updated_at": iv.updated_at.isoformat(),
     }
@@ -1624,7 +1634,10 @@ def get_transcript(interview_id: str) -> list[dict[str, Any]]:
             .order_by(TranscriptSegment.sequence)
         ).all()
         return [
-            {"id": r.id, "speaker": r.speaker, "text": r.text, "start_time": r.start_time, "end_time": r.end_time}
+            {
+                "id": r.id, "sequence": r.sequence, "speaker": r.speaker, "text": r.text,
+                "start_time": r.start_time, "end_time": r.end_time,
+            }
             for r in rows
         ]
 
@@ -1640,7 +1653,10 @@ def search_transcript(interview_id: str, query: str) -> list[dict[str, Any]]:
             .order_by(TranscriptSegment.sequence)
         ).all()
         return [
-            {"id": r.id, "speaker": r.speaker, "text": r.text, "start_time": r.start_time, "end_time": r.end_time}
+            {
+                "id": r.id, "sequence": r.sequence, "speaker": r.speaker, "text": r.text,
+                "start_time": r.start_time, "end_time": r.end_time,
+            }
             for r in rows
         ]
 
@@ -1658,3 +1674,88 @@ def set_segment_speaker(interview_id: str, segment_id: int, speaker: str) -> dic
             "id": seg.id, "speaker": seg.speaker, "text": seg.text,
             "start_time": seg.start_time, "end_time": seg.end_time,
         }
+
+
+# ── interview intelligence, phase 2 (competencies, evidence, follow-ups) ──
+
+
+def delete_interview_intelligence(interview_id: str) -> None:
+    """Clears any previously-saved competencies/evidence/follow-ups for
+    this interview — called before saving a fresh analysis so a re-run
+    (api.py's /interviews/{id}/analyze, callable again any time) never
+    doubles up, same retry-safety pattern as delete_transcript_segments."""
+    with db.get_session() as session:
+        competency_ids = [
+            cid for (cid,) in session.execute(
+                select(InterviewCompetency.id).where(InterviewCompetency.interview_id == interview_id)
+            )
+        ]
+        if competency_ids:
+            session.execute(delete(InterviewEvidence).where(InterviewEvidence.competency_id.in_(competency_ids)))
+        session.execute(delete(InterviewCompetency).where(InterviewCompetency.interview_id == interview_id))
+        session.execute(delete(FollowUpQuestion).where(FollowUpQuestion.interview_id == interview_id))
+        session.commit()
+
+
+def save_interview_intelligence(
+    interview_id: str, competencies: list[dict[str, Any]], follow_up_questions: list[dict[str, Any]]
+) -> None:
+    """`competencies` items: {competency, category, status, rationale,
+    evidence: [{segment_id, note}]} — segment_id must already be a real
+    TranscriptSegment id for this interview (see
+    stages/interview_intelligence.py's segment-index resolution, which
+    is what guarantees that before this is ever called)."""
+    with db.get_session() as session:
+        for i, c in enumerate(competencies):
+            row = InterviewCompetency(
+                interview_id=interview_id, sequence=i, competency=c["competency"],
+                category=c.get("category", "must_have"), status=c.get("status", "Not discussed"),
+                rationale=c.get("rationale", ""),
+            )
+            session.add(row)
+            session.flush()  # assigns row.id, needed for the evidence rows below
+            for e in c.get("evidence", []):
+                session.add(InterviewEvidence(competency_id=row.id, segment_id=e["segment_id"], note=e.get("note", "")))
+        for i, f in enumerate(follow_up_questions):
+            session.add(FollowUpQuestion(
+                interview_id=interview_id, sequence=i, question=f["question"],
+                rationale=f.get("rationale", ""), related_competency=f.get("related_competency", ""),
+            ))
+        session.commit()
+
+
+def get_interview_intelligence(interview_id: str) -> dict[str, Any]:
+    """Evidence is expanded to the real transcript segment (text/
+    timestamp), not a stored quote — see InterviewEvidence's docstring."""
+    with db.get_session() as session:
+        competencies = session.scalars(
+            select(InterviewCompetency).where(InterviewCompetency.interview_id == interview_id)
+            .order_by(InterviewCompetency.sequence)
+        ).all()
+        competency_results = []
+        for c in competencies:
+            evidence_rows = session.scalars(
+                select(InterviewEvidence).where(InterviewEvidence.competency_id == c.id)
+            ).all()
+            evidence = []
+            for e in evidence_rows:
+                seg = session.get(TranscriptSegment, e.segment_id)
+                if seg is None:
+                    continue
+                evidence.append({
+                    "segment_id": seg.id, "speaker": seg.speaker, "text": seg.text,
+                    "start_time": seg.start_time, "end_time": seg.end_time, "note": e.note,
+                })
+            competency_results.append({
+                "id": c.id, "competency": c.competency, "category": c.category,
+                "status": c.status, "rationale": c.rationale, "evidence": evidence,
+            })
+        follow_ups = session.scalars(
+            select(FollowUpQuestion).where(FollowUpQuestion.interview_id == interview_id)
+            .order_by(FollowUpQuestion.sequence)
+        ).all()
+        follow_up_results = [
+            {"id": f.id, "question": f.question, "rationale": f.rationale, "related_competency": f.related_competency}
+            for f in follow_ups
+        ]
+        return {"competencies": competency_results, "follow_up_questions": follow_up_results}

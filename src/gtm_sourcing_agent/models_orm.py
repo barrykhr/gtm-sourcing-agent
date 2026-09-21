@@ -355,6 +355,9 @@ class InterviewSession(Base):
     intelligence_status: Mapped[str] = mapped_column(String, default="pending")
     summary: Mapped[dict | None] = mapped_column(JSON, default=None)
     error: Mapped[str | None] = mapped_column(String, default=None)
+    intelligence_error: Mapped[str | None] = mapped_column(
+        String, default=None
+    )  # Phase 2: separate from `error` above, which is Phase 1's recording/transcription failure field
     started_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
@@ -378,3 +381,55 @@ class TranscriptSegment(Base):
     text: Mapped[str] = mapped_column(String, default="")
     start_time: Mapped[float] = mapped_column(Float, default=0.0)
     end_time: Mapped[float] = mapped_column(Float, default=0.0)
+
+
+class InterviewCompetency(Base):
+    """Interview Intelligence, Phase 2: one JD requirement (must-have or
+    nice-to-have) mapped against this specific interview's transcript.
+    `status` is one of the four evidence-strength labels — see
+    models/interview.py's `EvidenceStrength` and prompts/
+    interview_intelligence.md's anti-hallucination discipline: this is
+    never a hire/reject signal, only "what did we actually hear."
+    `sequence` preserves the order the model produced them in (roughly
+    JD-requirement order), for a stable scorecard render."""
+
+    __tablename__ = "interview_competencies"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    interview_id: Mapped[str] = mapped_column(ForeignKey("interview_sessions.id"))
+    sequence: Mapped[int] = mapped_column(default=0)
+    competency: Mapped[str] = mapped_column(String, default="")
+    category: Mapped[str] = mapped_column(String, default="must_have")
+    status: Mapped[str] = mapped_column(String, default="Not discussed")
+    rationale: Mapped[str] = mapped_column(String, default="")
+
+
+class InterviewEvidence(Base):
+    """One transcript segment supporting an InterviewCompetency's status.
+    Deliberately points at a real TranscriptSegment row rather than
+    storing a free-text quote — the segment's actual text/timestamp is
+    what the recruiter sees, never a model-reproduced paraphrase of it
+    (see stages/interview_intelligence.py's segment-index resolution)."""
+
+    __tablename__ = "interview_evidence"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    competency_id: Mapped[int] = mapped_column(ForeignKey("interview_competencies.id"))
+    segment_id: Mapped[int] = mapped_column(ForeignKey("transcript_segments.id"))
+    note: Mapped[str] = mapped_column(String, default="")
+
+
+class FollowUpQuestion(Base):
+    """Interview Intelligence, Phase 2: a suggested follow-up question
+    for a later round, generated from this interview's gaps (competencies
+    left "Needs validation"/"Not discussed") — never an autonomous
+    scheduling action, just a suggestion the recruiter can use or ignore."""
+
+    __tablename__ = "follow_up_questions"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    interview_id: Mapped[str] = mapped_column(ForeignKey("interview_sessions.id"))
+    sequence: Mapped[int] = mapped_column(default=0)
+    question: Mapped[str] = mapped_column(String, default="")
+    rationale: Mapped[str] = mapped_column(String, default="")
+    related_competency: Mapped[str] = mapped_column(String, default="")

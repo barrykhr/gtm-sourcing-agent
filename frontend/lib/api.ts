@@ -728,6 +728,7 @@ export type Interview = {
   intelligence_status: PipelineStageStatus;
   summary: InterviewSummary | null;
   error: string | null;
+  intelligence_error: string | null;
   started_at: string;
   ended_at: string | null;
   created_at: string;
@@ -767,6 +768,68 @@ export const getTranscript = (interviewId: string, query?: string) =>
 
 export const correctSegmentSpeaker = (interviewId: string, segmentId: number, speaker: TranscriptSegment["speaker"]) =>
   patch<TranscriptSegment>(`/interviews/${interviewId}/transcript/${segmentId}/speaker`, { speaker });
+
+// ── interview intelligence, phase 2 ──────────────────────────────────────
+// Maps the job's must-have/nice-to-have requirements onto this one
+// interview's transcript: a per-competency evidence-strength scorecard,
+// the real transcript segments behind each status (never a fabricated
+// quote — see stages/interview_intelligence.py), and suggested
+// follow-up questions. Never a hire/reject signal. "Ask Talyn" answers
+// a free-form question the same grounded way.
+
+export type EvidenceStrength = "Strong evidence" | "Needs validation" | "Not discussed" | "Insufficient evidence";
+export type CompetencyCategory = "must_have" | "nice_to_have";
+
+export type CompetencyEvidence = {
+  segment_id: number;
+  speaker: "recruiter" | "candidate" | "unknown";
+  text: string;
+  start_time: number;
+  end_time: number;
+  note: string;
+};
+
+export type InterviewCompetency = {
+  id: number;
+  competency: string;
+  category: CompetencyCategory;
+  status: EvidenceStrength;
+  rationale: string;
+  evidence: CompetencyEvidence[];
+};
+
+export type FollowUpQuestion = {
+  id: number;
+  question: string;
+  rationale: string;
+  related_competency: string;
+};
+
+export type InterviewIntelligence = {
+  competencies: InterviewCompetency[];
+  follow_up_questions: FollowUpQuestion[];
+};
+
+export const analyzeInterview = (interviewId: string) => post<Task>(`/interviews/${interviewId}/analyze`);
+
+export const getInterviewIntelligence = (interviewId: string) =>
+  get<InterviewIntelligence>(`/interviews/${interviewId}/intelligence`);
+
+export type AskInterviewCitation = {
+  segment_id: number;
+  speaker: "recruiter" | "candidate" | "unknown";
+  text: string;
+  start_time: number;
+};
+
+export type AskInterviewAnswer = {
+  answer: string;
+  citations: AskInterviewCitation[];
+  unable_to_answer: boolean;
+};
+
+export const askInterviewQuestion = (interviewId: string, question: string) =>
+  post<Task>(`/interviews/${interviewId}/ask`, { question });
 
 // ── integrations / outbound webhook (Phase 8) ──────────────────────────
 // A real HTTP POST to a URL the recruiter configures for their own job —

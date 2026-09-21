@@ -777,3 +777,26 @@ def test_delete_job_cascades_to_interviews_and_transcript(isolated_db):
 
     assert db_storage.get_interview(interview["id"]) is None
     assert db_storage.get_transcript(interview["id"]) == []
+
+
+def test_delete_job_cascades_to_interview_intelligence(isolated_db):
+    db_storage.create_job("job-a", title="A")
+    db_storage.merge_candidate("job-a", "cand-1", {"name": "Jane Doe"})
+    interview = db_storage.create_interview("job-a", "cand-1", "priya@example.com")
+    db_storage.save_transcript_segments(interview["id"], [
+        {"speaker": "candidate", "text": "Five years in enterprise sales.", "start_time": 0.0, "end_time": 2.0},
+    ])
+    segment_id = db_storage.get_transcript(interview["id"])[0]["id"]
+    db_storage.save_interview_intelligence(
+        interview["id"],
+        [{
+            "competency": "5+ years enterprise sales", "category": "must_have", "status": "Strong evidence",
+            "rationale": "stated directly", "evidence": [{"segment_id": segment_id, "note": ""}],
+        }],
+        [{"question": "Ask about quota", "rationale": "gap", "related_competency": ""}],
+    )
+
+    db_storage.delete_job("job-a")
+
+    assert db_storage.get_interview(interview["id"]) is None
+    assert db_storage.get_interview_intelligence(interview["id"]) == {"competencies": [], "follow_up_questions": []}
