@@ -332,13 +332,13 @@ function OutreachSettingsPanel() {
               value={template}
               onChange={(e) => { setTemplate(e.target.value); setSaved(false); }}
               rows={6}
-              className="w-full rounded-md border border-zinc-300 p-3 text-sm outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-zinc-950"
+              className="w-full rounded-md border border-zinc-300 p-3 text-sm outline-none focus:border-signal-600 dark:border-zinc-700 dark:bg-zinc-950"
             />
             <div className="flex items-center gap-3">
               <button
                 onClick={saveTemplate}
                 disabled={saving || template === settings.followup_template}
-                className="self-start rounded-md bg-indigo-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-800 disabled:opacity-50"
+                className="self-start rounded-md bg-signal-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-signal-800 disabled:opacity-50"
               >
                 {saving ? "Saving…" : "Save template"}
               </button>
@@ -393,12 +393,12 @@ function EmailDiagnosticsPanel() {
           value={to}
           onChange={(e) => { setTo(e.target.value); setResult(null); }}
           placeholder={user?.email ?? "you@example.com"}
-          className="min-w-56 flex-1 rounded-md border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-zinc-950"
+          className="min-w-56 flex-1 rounded-md border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-signal-600 dark:border-zinc-700 dark:bg-zinc-950"
         />
         <button
           onClick={send}
           disabled={busy || !recipient}
-          className="rounded-md bg-indigo-700 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-800 disabled:opacity-50"
+          className="rounded-md bg-signal-700 px-3 py-2 text-sm font-medium text-white hover:bg-signal-800 disabled:opacity-50"
         >
           {busy ? "Sending…" : "Send test email"}
         </button>

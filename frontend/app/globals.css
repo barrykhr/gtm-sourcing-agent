@@ -17,49 +17,66 @@
    instead of fixing each component one at a time as it's found. */
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
-/* Design tokens — "calm intelligence" pass (Batch 1 of the redesign).
-   A warm, restrained neutral canvas with one accent (indigo — unchanged
-   from the prior pass, this product's established color), a real
-   radius/elevation scale so every existing `rounded-md`/`shadow-md`
-   utility across the app picks up a consistent system for free, and
-   named semantic status tokens (success/warning/critical) so color
-   communicates state rather than decorates. Referenced via Tailwind's
-   @theme inline below so `bg-surface`, `border-border`, `shadow-md`,
-   `rounded-lg`, `text-muted-foreground` etc. all work as ordinary
-   utility classes — no more `shadow-[var(--shadow-sm)]` escape hatches
-   needed in new code (existing ones still resolve fine, unchanged). */
+/* Design tokens — TALYNT LABS website parity pass. Values below are
+   pulled directly from talyntlabs.com's own compiled stylesheet (not
+   eyeballed from screenshots): ink-900 #0b0b0d / paper-100 #f5f2ea /
+   signal #ff4d1c, the website's exact palette. The product's own
+   architecture (this @theme inline structure, the radius/shadow scale,
+   named semantic status tokens) is kept — this is a values swap onto an
+   already-token-driven system, not a rebuild. `--signal-*` is a full
+   50-950 Tailwind-style ramp (the website only ever names 300/600/700)
+   so every raw `indigo-50`..`indigo-950` utility across the app can be
+   mechanically renamed to `signal-*` and still resolve to a real shade. */
 :root {
   /* Without this, a browser/OS set to dark mode renders native form
      controls (inputs, scrollbars) with dark UI regardless of our own
      light tokens above — a light page with black input boxes, which is
      almost certainly what read as "the app is dark." */
   color-scheme: light;
-  --background: #faf9f6;
-  --surface: #ffffff;
+  --background: #f5f2ea;   /* paper-100 — the website's own light-section canvas */
+  --surface: #fbf9f5;      /* paper-50 — whiter than the canvas, reads as elevated */
   --surface-raised: #ffffff;
-  --foreground: #1c1a17;
-  --muted-foreground: #6b6a63;
-  --border: #e6e4dd;
-  --accent: #4f46e5;
-  --accent-hover: #4338ca;
-  --accent-soft: #eef0fd;
-  --accent-contrast: #ffffff;
-  /* Atmosphere only, never an interactive color — the soft lavender
-     Sarvam washes its canvas in, kept separate from --accent so the
-     "click this" color stays unambiguous. */
-  --wash: #ccc3f7;
+  --foreground: #0b0b0d;   /* ink-900 */
+  --muted-foreground: #747370; /* website's own computed fg-55 on a paper background */
+  --border: color-mix(in oklab, #0b0b0d 14%, transparent); /* website's exact --hairline-paper formula */
+  --border-subtle: color-mix(in oklab, #0b0b0d 8%, transparent);
+  --border-strong: color-mix(in oklab, #0b0b0d 24%, transparent);
+  --accent: #ff4d1c;       /* signal — the website's one accent color */
+  --accent-hover: #e03d10; /* signal-600 */
+  --accent-soft: #ffe4d8;  /* signal-100 */
+  --accent-contrast: #fbf9f5;
+  /* Atmosphere only, never an interactive color — the website's own hero
+     uses a signal-tinted radial glow (`bg-signal/[0.07] blur-[140px]`)
+     rather than a separate wash hue, so this now derives from --accent
+     instead of the prior unrelated lavender. */
+  --wash: color-mix(in oklab, var(--accent) 10%, transparent);
+
+  --signal-50: #fff4ef;
+  --signal-100: #ffe4d8;
+  --signal-200: #ffc7b0;
+  --signal-300: #ff9370;
+  --signal-400: #ff6b42;
+  --signal-500: #ff4d1c;
+  --signal-600: #e03d10;
+  --signal-700: #b52f08;
+  --signal-800: #8a2306;
+  --signal-900: #5e1704;
+  --signal-950: #360d02;
 
   --success: #047857;
   --success-soft: #ecfdf5;
-  --warning: #b45309;
-  --warning-soft: #fffbeb;
+  /* Shifted toward gold/yellow (away from amber) so it never reads as a
+     dimmer version of --accent — the two need to stay visually distinct
+     since signal is now a vivid orange-red, not indigo. */
+  --warning: #92660a;
+  --warning-soft: #fdf6e3;
   --critical: #b91c1c;
   --critical-soft: #fef2f2;
 
-  --shadow-xs: 0 1px 2px 0 rgb(28 26 23 / 0.03);
-  --shadow-sm: 0 1px 2px 0 rgb(28 26 23 / 0.04), 0 1px 1px 0 rgb(28 26 23 / 0.03);
-  --shadow-md: 0 4px 12px -2px rgb(28 26 23 / 0.08), 0 2px 4px -2px rgb(28 26 23 / 0.04);
-  --shadow-lg: 0 12px 32px -8px rgb(28 26 23 / 0.16), 0 4px 8px -4px rgb(28 26 23 / 0.06);
+  --shadow-xs: 0 1px 2px 0 rgb(11 11 13 / 0.03);
+  --shadow-sm: 0 1px 2px 0 rgb(11 11 13 / 0.04), 0 1px 1px 0 rgb(11 11 13 / 0.03);
+  --shadow-md: 0 4px 12px -2px rgb(11 11 13 / 0.08), 0 2px 4px -2px rgb(11 11 13 / 0.04);
+  --shadow-lg: 0 12px 32px -8px rgb(11 11 13 / 0.16), 0 4px 8px -4px rgb(11 11 13 / 0.06);
 
   --radius-sm: 6px;
   --radius-md: 8px;
@@ -75,6 +92,8 @@
   --color-foreground: var(--foreground);
   --color-muted-foreground: var(--muted-foreground);
   --color-border: var(--border);
+  --color-border-subtle: var(--border-subtle);
+  --color-border-strong: var(--border-strong);
   --color-accent: var(--accent);
   --color-accent-soft: var(--accent-soft);
   --color-success: var(--success);
@@ -83,6 +102,18 @@
   --color-warning-soft: var(--warning-soft);
   --color-critical: var(--critical);
   --color-critical-soft: var(--critical-soft);
+
+  --color-signal-50: var(--signal-50);
+  --color-signal-100: var(--signal-100);
+  --color-signal-200: var(--signal-200);
+  --color-signal-300: var(--signal-300);
+  --color-signal-400: var(--signal-400);
+  --color-signal-500: var(--signal-500);
+  --color-signal-600: var(--signal-600);
+  --color-signal-700: var(--signal-700);
+  --color-signal-800: var(--signal-800);
+  --color-signal-900: var(--signal-900);
+  --color-signal-950: var(--signal-950);
 
   --shadow-xs: var(--shadow-xs);
   --shadow-sm: var(--shadow-sm);
@@ -95,9 +126,9 @@
   --radius-xl: var(--radius-xl);
   --radius-2xl: var(--radius-2xl);
 
-  --font-sans: var(--font-inter);
+  --font-sans: var(--font-geist);
   --font-mono: var(--font-geist-mono);
-  --font-serif: var(--font-fraunces);
+  --font-serif: var(--font-newsreader);
 }
 
 /* Light is the only rendered mode for now — deliberately not gated on
@@ -108,17 +139,22 @@
    real toggle later (:root[data-theme="dark"]), just not auto-applied. */
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --background: #100f0d;
-  --surface: #181714;
-  --surface-raised: #1e1d19;
-  --foreground: #f3f2ee;
-  --muted-foreground: #9d9a90;
-  --border: #2c2a25;
-  --accent: #818cf8;
-  --accent-hover: #a5b4fc;
-  --accent-soft: #24244a;
-  --accent-contrast: #100f0d;
-  --wash: #4c3f8f;
+  /* The website's own tone-ink section: ink-900 background, paper-100
+     foreground, same signal accent (a vivid accent needs no re-tuning
+     for a dark ground — the website itself uses it against ink-900). */
+  --background: #0b0b0d;   /* ink-900 */
+  --surface: #101013;      /* ink-850 */
+  --surface-raised: #16161a; /* ink-800 */
+  --foreground: #f5f2ea;   /* paper-100 */
+  --muted-foreground: #a3a19d; /* website's own computed fg-65 on an ink background */
+  --border: color-mix(in oklab, #f5f2ea 12%, transparent); /* website's exact --hairline-ink formula */
+  --border-subtle: color-mix(in oklab, #f5f2ea 7%, transparent);
+  --border-strong: color-mix(in oklab, #f5f2ea 22%, transparent);
+  --accent: #ff4d1c;
+  --accent-hover: #ff9370;
+  --accent-soft: #5e1704;
+  --accent-contrast: #fbf9f5;
+  --wash: color-mix(in oklab, var(--accent) 18%, transparent);
 
   --success: #34d399;
   --success-soft: #0b2e22;
@@ -140,8 +176,7 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
-  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  font-family: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
 }
 
 h1, h2, h3 {
@@ -149,19 +184,29 @@ h1, h2, h3 {
 }
 
 /* Display serif — page/section headlines only (Dashboard "Jobs", a role's
-   title, a report header). Never body text, never data-dense UI. */
+   title, a report header). Never body text, never data-dense UI. Same
+   recipe as talyntlabs.com's own `.display` class — tight tracking, a
+   near-1 line-height, the "opsz" 48 optical-size axis dialed toward the
+   display cut rather than the text cut. Pair with an <em>/<span
+   className="italic"> around the phrase that should carry emphasis, the
+   website's own pattern (e.g. "Hiring is more than *finding the right
+   CV*"), rather than bolding or color for headline emphasis. */
 .font-display {
-  font-family: var(--font-fraunces), Georgia, serif;
+  font-family: var(--font-newsreader), Georgia, serif;
   font-optical-sizing: auto;
+  font-variation-settings: "opsz" 48;
+  letter-spacing: -0.028em;
+  line-height: 0.98;
 }
 
-/* Small uppercase label above a headline, in a muted accent tone — the
-   "ENTERPRISE AI AGENT PLATFORM" / "MODULE 01" pattern every reference
-   site uses to frame its headline instead of dropping straight into it. */
+/* Small uppercase mono label above a headline or as a sequential marker
+   ("01", "02") — talyntlabs.com's own `.mono-micro` recipe exactly:
+   monospace, not sans, at a deliberately tiny size with wide tracking. */
 .eyebrow {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 450;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--accent);
 }

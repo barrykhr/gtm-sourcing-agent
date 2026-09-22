@@ -21,7 +21,7 @@ function Section({
 }) {
   return (
     <section id={id} className="scroll-mt-20 border-t border-zinc-200 pt-8 dark:border-zinc-800">
-      <p className="text-xs font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-400">{eyebrow}</p>
+      <p className="text-xs font-semibold uppercase tracking-wide text-signal-700 dark:text-signal-400">{eyebrow}</p>
       <h2 className="mt-1 text-xl font-semibold tracking-tight">{title}</h2>
       <p className="mt-2 max-w-2xl text-sm text-zinc-600 dark:text-zinc-400">{what}</p>
       <ol className="mt-4 flex max-w-2xl flex-col gap-1.5 text-sm">
@@ -71,7 +71,7 @@ export default function GuidePage() {
         <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">On this page</p>
         <nav className="flex flex-col gap-1 text-sm">
           {TOC.map((t) => (
-            <a key={t.id} href={`#${t.id}`} className="text-zinc-500 hover:text-indigo-700 dark:hover:text-indigo-400">
+            <a key={t.id} href={`#${t.id}`} className="text-zinc-500 hover:text-signal-700 dark:hover:text-signal-400">
               {t.label}
             </a>
           ))}
@@ -279,7 +279,7 @@ export default function GuidePage() {
           <p>
             Every screenshot above was captured from this app, in one real session — not mocked up separately.
             Have a question this guide doesn&apos;t answer?{" "}
-            <Link href="/" className="text-indigo-700 hover:underline dark:text-indigo-400">
+            <Link href="/" className="text-signal-700 hover:underline dark:text-signal-400">
               Head back to your jobs
             </Link>{" "}
             and ask the AI Copilot from any workspace.

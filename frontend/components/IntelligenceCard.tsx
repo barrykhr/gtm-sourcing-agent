@@ -172,7 +172,7 @@ export function IntelligenceCard({ roleId, candidateId }: { roleId: string; cand
                 value={selectedId ?? ""}
                 onChange={(e) => selectInterview(interviews, e.target.value)}
                 aria-label="Interview"
-                className="rounded-md border border-zinc-300 px-2 py-1 text-xs outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-zinc-950"
+                className="rounded-md border border-zinc-300 px-2 py-1 text-xs outline-none focus:border-signal-600 dark:border-zinc-700 dark:bg-zinc-950"
               >
                 {interviews.map((iv) => (
                   <option key={iv.id} value={iv.id}>
@@ -200,7 +200,7 @@ export function IntelligenceCard({ roleId, candidateId }: { roleId: string; cand
                 </div>
 
                 {selected.intelligence_status === "processing" && (
-                  <p className="mt-2 text-xs text-indigo-600 dark:text-indigo-400">Analyzing transcript…</p>
+                  <p className="mt-2 text-xs text-signal-600 dark:text-signal-400">Analyzing transcript…</p>
                 )}
                 {selected.intelligence_status === "failed" && selected.intelligence_error && (
                   <p className="mt-2 text-xs text-red-600 dark:text-red-400">{selected.intelligence_error}</p>
@@ -271,7 +271,7 @@ export function IntelligenceCard({ roleId, candidateId }: { roleId: string; cand
                       onChange={(e) => setAskQuestion(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && askTalyn()}
                       placeholder="Ask a question about this interview…"
-                      className="flex-1 rounded-md border border-zinc-300 px-2 py-1 text-xs outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-zinc-950"
+                      className="flex-1 rounded-md border border-zinc-300 px-2 py-1 text-xs outline-none focus:border-signal-600 dark:border-zinc-700 dark:bg-zinc-950"
                     />
                     <button
                       onClick={askTalyn}
@@ -282,7 +282,7 @@ export function IntelligenceCard({ roleId, candidateId }: { roleId: string; cand
                     </button>
                   </div>
                   {askAnswer && (
-                    <div className="mt-2 rounded-md bg-indigo-50/60 p-2 dark:bg-indigo-950/30">
+                    <div className="mt-2 rounded-md bg-signal-50/60 p-2 dark:bg-signal-950/30">
                       <p className="text-xs">{askAnswer.answer}</p>
                       {askAnswer.citations.length > 0 && (
                         <ul className="mt-1 flex flex-col gap-1">

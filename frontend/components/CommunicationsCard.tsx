@@ -40,7 +40,7 @@ function ConfirmDialog({
           </button>
           <button
             onClick={onConfirm}
-            className="rounded-md bg-indigo-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-800"
+            className="rounded-md bg-signal-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-signal-800"
           >
             {confirmLabel}
           </button>
@@ -176,7 +176,7 @@ export function CommunicationsCard({
               value={phoneDraft}
               onChange={(e) => setPhoneDraft(e.target.value)}
               placeholder="+91XXXXXXXXXX"
-              className="block w-40 rounded-md border border-zinc-300 px-2 py-1 text-xs outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-zinc-950"
+              className="block w-40 rounded-md border border-zinc-300 px-2 py-1 text-xs outline-none focus:border-signal-600 dark:border-zinc-700 dark:bg-zinc-950"
             />
           </div>
           <div>
@@ -185,14 +185,14 @@ export function CommunicationsCard({
               value={emailDraft}
               onChange={(e) => setEmailDraft(e.target.value)}
               placeholder="name@example.com"
-              className="block w-48 rounded-md border border-zinc-300 px-2 py-1 text-xs outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-zinc-950"
+              className="block w-48 rounded-md border border-zinc-300 px-2 py-1 text-xs outline-none focus:border-signal-600 dark:border-zinc-700 dark:bg-zinc-950"
             />
           </div>
           {contactDirty && (
             <button
               onClick={saveContact}
               disabled={savingContact}
-              className="rounded-md bg-indigo-700 px-2.5 py-1 text-xs font-medium text-white hover:bg-indigo-800 disabled:opacity-50"
+              className="rounded-md bg-signal-700 px-2.5 py-1 text-xs font-medium text-white hover:bg-signal-800 disabled:opacity-50"
             >
               {savingContact ? "Saving…" : "Save contact"}
             </button>
@@ -200,8 +200,8 @@ export function CommunicationsCard({
         </div>
 
         {briefing && (briefing.whyThisCandidate.length > 0 || briefing.keyStrengths.length > 0 || briefing.whatToValidate.length > 0 || briefing.suggestedQuestions.length > 0) && (
-          <details className="rounded-md border border-indigo-200 bg-indigo-50/40 p-3 text-xs dark:border-indigo-900 dark:bg-indigo-950/30" open>
-            <summary className="cursor-pointer text-xs font-semibold text-indigo-800 dark:text-indigo-300">Call briefing</summary>
+          <details className="rounded-md border border-signal-200 bg-signal-50/40 p-3 text-xs dark:border-signal-900 dark:bg-signal-950/30" open>
+            <summary className="cursor-pointer text-xs font-semibold text-signal-800 dark:text-signal-300">Call briefing</summary>
             <div className="mt-2 grid gap-2 sm:grid-cols-2">
               {briefing.whyThisCandidate.length > 0 && (
                 <div>
@@ -252,7 +252,7 @@ export function CommunicationsCard({
             onClick={() => setConfirmChannel("call")}
             disabled={!phone}
             title={phone ? "" : "Add a phone number first"}
-            className="rounded-md border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-800 hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-indigo-900 dark:bg-indigo-950 dark:text-indigo-300"
+            className="rounded-md border border-signal-300 bg-signal-50 px-3 py-1.5 text-xs font-medium text-signal-800 hover:bg-signal-100 disabled:cursor-not-allowed disabled:opacity-40 dark:border-signal-900 dark:bg-signal-950 dark:text-signal-300"
           >
             Call
           </button>
@@ -274,7 +274,7 @@ export function CommunicationsCard({
               value={waMessage}
               onChange={(e) => setWaMessage(e.target.value)}
               rows={3}
-              className="mt-3 w-full rounded-md border border-zinc-300 p-2 text-sm outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-zinc-950"
+              className="mt-3 w-full rounded-md border border-zinc-300 p-2 text-sm outline-none focus:border-signal-600 dark:border-zinc-700 dark:bg-zinc-950"
             />
           </ConfirmDialog>
         )}
@@ -288,10 +288,10 @@ export function CommunicationsCard({
           />
         )}
 
-        <div className="rounded-md border border-indigo-200 bg-indigo-50/60 p-3 dark:border-indigo-900 dark:bg-indigo-950/40">
+        <div className="rounded-md border border-signal-200 bg-signal-50/60 p-3 dark:border-signal-900 dark:bg-signal-950/40">
           <div className="flex items-center justify-between">
-            <p className="text-xs font-semibold text-indigo-800 dark:text-indigo-300">Conversation summary</p>
-            {refreshing && <span className="text-[11px] text-indigo-500">Updating…</span>}
+            <p className="text-xs font-semibold text-signal-800 dark:text-signal-300">Conversation summary</p>
+            {refreshing && <span className="text-[11px] text-signal-500">Updating…</span>}
           </div>
           {history === null ? (
             <p className="mt-1 text-xs text-zinc-400">{loadError ? "Could not load." : "Loading…"}</p>
@@ -377,7 +377,7 @@ export function CommunicationsCard({
               value={manualChannel}
               onChange={(e) => setManualChannel(e.target.value as CommunicationChannel)}
               aria-label="Communication channel"
-              className="rounded-md border border-zinc-300 px-2 py-1 text-xs outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-zinc-950"
+              className="rounded-md border border-zinc-300 px-2 py-1 text-xs outline-none focus:border-signal-600 dark:border-zinc-700 dark:bg-zinc-950"
             >
               {(["email", "whatsapp", "call", "note"] as CommunicationChannel[]).map((c) => (
                 <option key={c} value={c}>{CHANNEL_LABEL[c]}</option>
@@ -387,7 +387,7 @@ export function CommunicationsCard({
               value={manualContent}
               onChange={(e) => setManualContent(e.target.value)}
               placeholder="What happened / message content"
-              className="min-w-[220px] flex-1 rounded-md border border-zinc-300 px-2 py-1 text-xs outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-zinc-950"
+              className="min-w-[220px] flex-1 rounded-md border border-zinc-300 px-2 py-1 text-xs outline-none focus:border-signal-600 dark:border-zinc-700 dark:bg-zinc-950"
             />
           </div>
           {manualChannel === "call" && (
@@ -396,7 +396,7 @@ export function CommunicationsCard({
               onChange={(e) => setManualTranscript(e.target.value)}
               placeholder="Transcript (optional) — paste it here today; a real transcription provider would fill this in automatically"
               rows={2}
-              className="w-full rounded-md border border-zinc-300 p-2 text-xs outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-zinc-950"
+              className="w-full rounded-md border border-zinc-300 p-2 text-xs outline-none focus:border-signal-600 dark:border-zinc-700 dark:bg-zinc-950"
             />
           )}
           <button

@@ -36,7 +36,7 @@ export default function CandidateDetail() {
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <Link href="/candidates" className="text-sm text-indigo-700 hover:underline dark:text-indigo-400">
+        <Link href="/candidates" className="text-sm text-signal-700 hover:underline dark:text-signal-400">
           ← Candidates
         </Link>
         <h1 className="mt-2 text-2xl font-semibold tracking-tight">{candidate.name}</h1>
@@ -49,7 +49,7 @@ export default function CandidateDetail() {
             href={candidate.source_url}
             target="_blank"
             rel="noreferrer"
-            className="mt-1 inline-block text-xs text-indigo-700 hover:underline dark:text-indigo-400"
+            className="mt-1 inline-block text-xs text-signal-700 hover:underline dark:text-signal-400"
           >
             {candidate.source_url}
           </a>
@@ -104,7 +104,7 @@ export default function CandidateDetail() {
                 id="conversation-role"
                 value={selectedRoleId ?? ""}
                 onChange={(e) => setSelectedRoleId(e.target.value)}
-                className="rounded-md border border-zinc-300 px-2 py-1 text-xs outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-zinc-950"
+                className="rounded-md border border-zinc-300 px-2 py-1 text-xs outline-none focus:border-signal-600 dark:border-zinc-700 dark:bg-zinc-950"
               >
                 {candidate.evaluations.map((e) => (
                   <option key={e.role_id} value={e.role_id}>{e.job_title}</option>

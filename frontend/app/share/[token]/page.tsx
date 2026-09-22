@@ -40,7 +40,7 @@ export default function PublicRoleStatus() {
     <div className="w-full max-w-xl">
       <div className="rounded-xl border border-zinc-200 bg-surface p-6 shadow-[var(--shadow-md)] dark:border-zinc-800">
         {summary.client_name && (
-          <p className="text-xs font-medium uppercase tracking-wide text-indigo-700 dark:text-indigo-400">
+          <p className="text-xs font-medium uppercase tracking-wide text-signal-700 dark:text-signal-400">
             {summary.client_name}
           </p>
         )}

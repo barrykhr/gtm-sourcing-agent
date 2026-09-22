@@ -246,7 +246,7 @@ export function InterviewsCard({
             <button
               onClick={startInterview}
               disabled={starting}
-              className="rounded-md bg-indigo-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-800 disabled:opacity-50"
+              className="rounded-md bg-signal-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-signal-800 disabled:opacity-50"
             >
               {starting ? "Requesting microphone…" : "Start interview"}
             </button>
@@ -258,7 +258,7 @@ export function InterviewsCard({
           </div>
         )}
 
-        {pipelineStatus && <p className="text-xs text-indigo-600 dark:text-indigo-400">{pipelineStatus}</p>}
+        {pipelineStatus && <p className="text-xs text-signal-600 dark:text-signal-400">{pipelineStatus}</p>}
 
         {interviews === null ? (
           <p className="text-xs text-zinc-400">{loadError ? "Could not load interviews." : "Loading…"}</p>
@@ -301,8 +301,8 @@ export function InterviewsCard({
                     )}
 
                     {interview.summary && (
-                      <div className="mb-3 rounded-md border border-indigo-200 bg-indigo-50/60 p-3 dark:border-indigo-900 dark:bg-indigo-950/40">
-                        <p className="text-xs font-semibold text-indigo-800 dark:text-indigo-300">Summary</p>
+                      <div className="mb-3 rounded-md border border-signal-200 bg-signal-50/60 p-3 dark:border-signal-900 dark:bg-signal-950/40">
+                        <p className="text-xs font-semibold text-signal-800 dark:text-signal-300">Summary</p>
                         <p className="mt-1 text-sm">{interview.summary.overview}</p>
                         <div className="mt-2 grid gap-2 sm:grid-cols-2">
                           {interview.summary.key_experience.length > 0 && (
@@ -375,7 +375,7 @@ export function InterviewsCard({
                           value={transcriptQuery}
                           onChange={(e) => searchTranscript(interview.id, e.target.value)}
                           placeholder="Search transcript"
-                          className="mb-2 w-full rounded-md border border-zinc-300 px-2 py-1 text-xs outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-zinc-950"
+                          className="mb-2 w-full rounded-md border border-zinc-300 px-2 py-1 text-xs outline-none focus:border-signal-600 dark:border-zinc-700 dark:bg-zinc-950"
                         />
                         {transcript.length === 0 ? (
                           <p className="text-xs text-zinc-400">
@@ -394,7 +394,7 @@ export function InterviewsCard({
                                   aria-label="Speaker"
                                   className={`mr-1.5 rounded px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
                                     seg.speaker === "recruiter"
-                                      ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-950 dark:text-indigo-400"
+                                      ? "bg-signal-100 text-signal-700 dark:bg-signal-950 dark:text-signal-400"
                                       : seg.speaker === "candidate"
                                         ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400"
                                         : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"

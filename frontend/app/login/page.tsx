@@ -189,7 +189,7 @@ export default function LoginPage() {
                 autoComplete="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="rounded-md border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-background"
+                className="rounded-md border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-signal-600 dark:border-zinc-700 dark:bg-background"
               />
             </div>
             {mode !== "forgot" && (
@@ -216,7 +216,7 @@ export default function LoginPage() {
                   autoComplete={mode === "signup" ? "new-password" : "current-password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="rounded-md border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-background"
+                  className="rounded-md border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-signal-600 dark:border-zinc-700 dark:bg-background"
                 />
                 {mode === "signup" && <p className="text-xs text-zinc-400">At least 8 characters.</p>}
               </div>
@@ -231,7 +231,7 @@ export default function LoginPage() {
                   required
                   value={signupCode}
                   onChange={(e) => setSignupCode(e.target.value)}
-                  className="rounded-md border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-background"
+                  className="rounded-md border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-signal-600 dark:border-zinc-700 dark:bg-background"
                 />
               </div>
             )}

@@ -113,7 +113,7 @@ export function CopilotPanel({
               key={i}
               className={`max-w-[85%] rounded-lg px-3 py-2 text-sm ${
                 m.role === "user"
-                  ? "self-end bg-indigo-700 text-white"
+                  ? "self-end bg-signal-700 text-white"
                   : "self-start bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100"
               }`}
             >
@@ -131,7 +131,7 @@ export function CopilotPanel({
               <button
                 onClick={() => confirm(true)}
                 disabled={confirming}
-                className="rounded-md bg-indigo-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-800 disabled:opacity-50"
+                className="rounded-md bg-signal-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-signal-800 disabled:opacity-50"
               >
                 {confirming ? "Applying…" : "Yes — apply"}
               </button>
@@ -159,12 +159,12 @@ export function CopilotPanel({
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && !sending && send()}
           placeholder="Ask the copilot…"
-          className="flex-1 rounded-md border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-zinc-950"
+          className="flex-1 rounded-md border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-signal-600 dark:border-zinc-700 dark:bg-zinc-950"
         />
         <button
           onClick={send}
           disabled={sending || !input.trim()}
-          className="rounded-md bg-indigo-700 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-800 disabled:opacity-50"
+          className="rounded-md bg-signal-700 px-3 py-2 text-sm font-medium text-white hover:bg-signal-800 disabled:opacity-50"
         >
           {sending ? "…" : "Send"}
         </button>

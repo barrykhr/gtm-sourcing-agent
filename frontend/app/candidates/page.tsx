@@ -51,7 +51,7 @@ export default function CandidatesRoster() {
             <button
               key={c.candidate_id}
               onClick={() => router.push(`/candidates/${c.candidate_id}`)}
-              className="flex flex-col gap-3 rounded-lg border border-zinc-200 bg-surface p-4 text-left shadow-[var(--shadow-sm)] transition hover:border-indigo-600 hover:shadow-[var(--shadow-md)] dark:border-zinc-800"
+              className="flex flex-col gap-3 rounded-lg border border-zinc-200 bg-surface p-4 text-left shadow-[var(--shadow-sm)] transition hover:border-signal-600 hover:shadow-[var(--shadow-md)] dark:border-zinc-800"
             >
               <div>
                 <h2 className="font-medium">{c.name}</h2>

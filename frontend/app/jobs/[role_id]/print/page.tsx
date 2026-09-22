@@ -49,7 +49,7 @@ export default function PrintReportPage() {
         <span>Print-friendly report — use your browser&apos;s Print (Ctrl/Cmd+P) and save as PDF.</span>
         <button
           onClick={() => window.print()}
-          className="rounded-md bg-indigo-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-800"
+          className="rounded-md bg-signal-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-signal-800"
         >
           Print / Save as PDF
         </button>

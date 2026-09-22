@@ -242,8 +242,8 @@ export default function Dashboard() {
             </div>
           )}
           {attention.upcoming_interviews.length > 0 && (
-            <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-4 dark:border-indigo-900 dark:bg-indigo-950">
-              <h2 className="text-sm font-semibold text-indigo-800 dark:text-indigo-400">
+            <div className="rounded-lg border border-signal-200 bg-signal-50 p-4 dark:border-signal-900 dark:bg-signal-950">
+              <h2 className="text-sm font-semibold text-signal-800 dark:text-signal-400">
                 Upcoming interviews ({attention.upcoming_interviews.length})
               </h2>
               <ul className="mt-2 flex flex-col gap-1.5">
@@ -298,7 +298,7 @@ export default function Dashboard() {
                   <button
                     onClick={() => sendFollowup(item)}
                     disabled={sendingFollowup === key}
-                    className="shrink-0 rounded-md bg-indigo-700 px-3 py-1 text-xs font-medium text-white hover:bg-indigo-800 disabled:opacity-50"
+                    className="shrink-0 rounded-md bg-signal-700 px-3 py-1 text-xs font-medium text-white hover:bg-signal-800 disabled:opacity-50"
                   >
                     {sendingFollowup === key ? "Sending…" : "Send follow-up"}
                   </button>
@@ -322,7 +322,7 @@ export default function Dashboard() {
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Enterprise AE — Acme"
-            className="rounded-md border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-zinc-950"
+            className="rounded-md border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-signal-600 dark:border-zinc-700 dark:bg-zinc-950"
           />
         </div>
         <div className="flex flex-col gap-1">
@@ -334,7 +334,7 @@ export default function Dashboard() {
             value={roleFamily}
             onChange={(e) => setRoleFamily(e.target.value)}
             placeholder="sales, csm, sdr, engineering…"
-            className="rounded-md border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-zinc-950"
+            className="rounded-md border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-signal-600 dark:border-zinc-700 dark:bg-zinc-950"
           />
         </div>
         <div className="flex flex-col gap-1">
@@ -346,7 +346,7 @@ export default function Dashboard() {
             value={clientName}
             onChange={(e) => setClientName(e.target.value)}
             placeholder="optional — which client this role is for"
-            className="rounded-md border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-zinc-950"
+            className="rounded-md border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-signal-600 dark:border-zinc-700 dark:bg-zinc-950"
           />
         </div>
         <div className="flex w-36 flex-col gap-1">
@@ -360,13 +360,13 @@ export default function Dashboard() {
             inputMode="decimal"
             placeholder="optional"
             title="Annual CTC or fee basis — 8.33% of this becomes Expected Revenue"
-            className="rounded-md border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-indigo-600 dark:border-zinc-700 dark:bg-zinc-950"
+            className="rounded-md border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-signal-600 dark:border-zinc-700 dark:bg-zinc-950"
           />
         </div>
         <button
           type="submit"
           disabled={creating || !title.trim()}
-          className="rounded-md bg-indigo-700 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-800 disabled:opacity-50"
+          className="rounded-md bg-signal-700 px-4 py-2 text-sm font-medium text-white hover:bg-signal-800 disabled:opacity-50"
         >
           {creating ? "Creating…" : "New job"}
         </button>
@@ -384,7 +384,7 @@ export default function Dashboard() {
             onClick={() => setMyJobsOnly((v) => !v)}
             className={`rounded-md border px-3 py-1.5 text-xs font-medium ${
               myJobsOnly
-                ? "border-indigo-600 bg-indigo-50 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-400"
+                ? "border-signal-600 bg-signal-50 text-signal-800 dark:bg-signal-950 dark:text-signal-400"
                 : "border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
             }`}
           >
@@ -394,7 +394,7 @@ export default function Dashboard() {
             onClick={() => setShowClosed((v) => !v)}
             className={`rounded-md border px-3 py-1.5 text-xs font-medium ${
               showClosed
-                ? "border-indigo-600 bg-indigo-50 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-400"
+                ? "border-signal-600 bg-signal-50 text-signal-800 dark:bg-signal-950 dark:text-signal-400"
                 : "border-zinc-300 hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
             }`}
           >
@@ -407,7 +407,7 @@ export default function Dashboard() {
               <select
                 value={clientFilter}
                 onChange={(e) => setClientFilter(e.target.value)}
-                className="rounded-md border border-zinc-300 bg-surface px-2.5 py-1.5 text-xs font-medium outline-none focus:border-indigo-600 dark:border-zinc-700"
+                className="rounded-md border border-zinc-300 bg-surface px-2.5 py-1.5 text-xs font-medium outline-none focus:border-signal-600 dark:border-zinc-700"
               >
                 <option value="">All clients</option>
                 {clients.map((c) => (
@@ -440,7 +440,7 @@ export default function Dashboard() {
               <button
                 key={job.role_id}
                 onClick={() => router.push(`/jobs/${job.role_id}`)}
-                className="flex flex-col gap-3 rounded-lg border border-zinc-200 bg-surface p-4 text-left shadow-[var(--shadow-sm)] transition hover:border-indigo-600 hover:shadow-[var(--shadow-md)] dark:border-zinc-800"
+                className="flex flex-col gap-3 rounded-lg border border-zinc-200 bg-surface p-4 text-left shadow-[var(--shadow-sm)] transition hover:border-signal-600 hover:shadow-[var(--shadow-md)] dark:border-zinc-800"
               >
                 <div>
                   <div className="flex items-center justify-between gap-2">
@@ -453,7 +453,7 @@ export default function Dashboard() {
                   </div>
                   {job.role_family && <p className="text-xs text-zinc-500">{job.role_family}</p>}
                   {job.client_name && (
-                    <p className="text-xs font-medium text-indigo-700 dark:text-indigo-400">{job.client_name}</p>
+                    <p className="text-xs font-medium text-signal-700 dark:text-signal-400">{job.client_name}</p>
                   )}
                   {job.owner_email && job.owner_email !== user?.email && (
                     <p className="text-xs text-zinc-400">Owner: {job.owner_email}</p>
