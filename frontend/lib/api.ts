@@ -105,6 +105,14 @@ export const JOB_LIFECYCLE_LABELS: Record<JobLifecycleStatus, string> = {
 // hide-closed-jobs filter and the job page badge's color use this.
 export const CLOSED_LIFECYCLE_STATUSES: JobLifecycleStatus[] = ["FILLED", "CANCELLED"];
 
+// TAT/prioritization batch — client-stated urgency, recruiter-set, never
+// AI-inferred (same discipline as role_value).
+export const URGENCY_LEVELS = ["low", "normal", "high", "critical"] as const;
+export type UrgencyLevel = (typeof URGENCY_LEVELS)[number];
+export const URGENCY_LABELS: Record<UrgencyLevel, string> = {
+  low: "Low", normal: "Normal", high: "High", critical: "Critical",
+};
+
 export type JobSummary = {
   role_id: string;
   // Human-facing requisition code (e.g. "POS-0001") — sequential, assigned
@@ -125,6 +133,14 @@ export type JobSummary = {
   // server-side; null (not 0) when role_value isn't set.
   role_value: number | null;
   expected_revenue: number | null;
+  // TAT/prioritization batch. urgency is recruiter-set; target_fill_date
+  // is the client's stated deadline, if any (ISO date, or null). tat_days
+  // and days_until_due are both computed server-side, deterministically —
+  // see db_storage._tat_days/_days_until.
+  urgency: UrgencyLevel;
+  target_fill_date: string | null;
+  tat_days: number;
+  days_until_due: number | null;
   created_at: string;
   updated_at: string;
   status: PipelineStatus;
@@ -290,6 +306,12 @@ export const listClients = () => get<ClientRecord[]>("/clients");
 export const setJobValue = (roleId: string, roleValue: number | null) =>
   patch<JobSummary>(`/jobs/${roleId}/value`, { role_value: roleValue });
 
+export const setJobUrgency = (roleId: string, urgency: UrgencyLevel) =>
+  patch<JobSummary>(`/jobs/${roleId}/urgency`, { urgency });
+
+export const setJobTargetFillDate = (roleId: string, targetFillDate: string | null) =>
+  patch<JobSummary>(`/jobs/${roleId}/target-fill-date`, { target_fill_date: targetFillDate });
+
 // Revenue intelligence (Batch: 8.33% model) — cumulative Expected/
 // Pipeline/Realized across the whole roster. Realized is never a
 // re-derivation of role_value — it's the sum of actual placement_fee
@@ -401,7 +423,10 @@ export type TaskStatus = "pending" | "running" | "succeeded" | "failed";
 
 export type Task = {
   task_id: string;
-  role_id: string;
+  // null for a task that isn't job-scoped (e.g. workload_planning) — see
+  // Task.role_id's docstring in models_orm.py. Polled via
+  // GET /team/tasks/{id} instead of the job-scoped route in that case.
+  role_id: string | null;
   kind: string;
   status: TaskStatus;
   args: Json;
@@ -443,6 +468,54 @@ async function waitForTask<T>(roleId: string, task: Task, onStatus?: (t: Task) =
   }
   return current.result as T;
 }
+
+export const getTeamTask = (taskId: string) => get<Task>(`/team/tasks/${taskId}`);
+
+async function waitForTeamTask<T>(task: Task, onStatus?: (t: Task) => void): Promise<T> {
+  let current = task;
+  const startedAt = Date.now();
+  onStatus?.(current);
+  while (current.status === "pending" || current.status === "running") {
+    if (Date.now() - startedAt > TASK_STALE_AFTER_MS) {
+      throw new ApiError(
+        504,
+        "This is taking much longer than expected and may be stuck. Refresh and try again — if it keeps happening, the server may need attention.",
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, TASK_POLL_INTERVAL_MS));
+    current = await getTeamTask(current.task_id);
+    onStatus?.(current);
+  }
+  if (current.status === "failed") {
+    throw new ApiError(502, current.error ?? "Task failed.");
+  }
+  return current.result as T;
+}
+
+// ── weekly effort planning (TAT/prioritization batch) ──────────────────
+// A recommendation for how many days this week to spend on each of the
+// recruiter's own open roles, given each role's urgency/TAT/deadline and
+// the recruiter's own available capacity this week. Never an automated
+// schedule — see stages/workload_planning.py's docstring.
+
+export type RoleEffortAllocation = {
+  role_id: string;
+  title: string;
+  recommended_days_this_week: number;
+  rationale: string;
+};
+
+export type WeeklyEffortPlan = {
+  available_days_per_week: number;
+  allocations: RoleEffortAllocation[];
+  overall_notes: string;
+};
+
+export const requestWorkloadPlan = async (availableDaysPerWeek: number, onStatus?: (t: Task) => void) =>
+  waitForTeamTask<WeeklyEffortPlan>(
+    await post<Task>("/team/workload-plan", { available_days_per_week: availableDaysPerWeek }),
+    onStatus,
+  );
 
 // ── role-level stages ──────────────────────────────────────────────────
 

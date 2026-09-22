@@ -35,9 +35,11 @@ from gtm_sourcing_agent.models import (  # noqa: E402
     InterviewSummaryResult,
     JobDescription,
     OutreachSequence,
+    RoleEffortAllocation,
     RoleInterviewQuestions,
     ScreeningQuestionSet,
     TalentMap,
+    WeeklyEffortPlan,
 )
 from gtm_sourcing_agent.models.interview_questions import InterviewQuestion  # noqa: E402
 from gtm_sourcing_agent.models.candidate import EvidencedFact  # noqa: E402
@@ -402,6 +404,33 @@ def _fake_outreach(**_) -> OutreachSequence:
     )
 
 
+def _fake_workload_plan(**_) -> WeeklyEffortPlan:
+    # Fake role_ids on purpose — this mock has no way to know which
+    # recruiter/roles a given request is for (see _fake_generate below,
+    # which only ever receives the rendered prompt + output_model, not
+    # the raw stage args). stages/workload_planning.py's own merge logic
+    # treats any allocation whose role_id isn't in the real roster as
+    # unmatched and backfills every real open role with an even split of
+    # remaining capacity instead — a real, legitimate render path, not a
+    # broken one, so this is still useful for exercising the UI.
+    return WeeklyEffortPlan(
+        available_days_per_week=5,
+        allocations=[
+            RoleEffortAllocation(
+                role_id="(mock) role-a", title="(mock) role-a",
+                recommended_days_this_week=3,
+                rationale="(mock) Overdue against its client deadline and no candidates in later pipeline stages yet.",
+            ),
+            RoleEffortAllocation(
+                role_id="(mock) role-b", title="(mock) role-b",
+                recommended_days_this_week=2,
+                rationale="(mock) Normal urgency, several candidates already mid-pipeline — needs steady but not urgent attention.",
+            ),
+        ],
+        overall_notes="(mock) Capacity fully allocated this week; nothing left over for lower-priority roles.",
+    )
+
+
 _BY_STAGE = {
     "intake": _fake_job_description,
     "calibration": _fake_calibration,
@@ -418,6 +447,7 @@ _BY_STAGE = {
     "interview_summary": _fake_interview_summary,
     "interview_intelligence": _fake_interview_intelligence,
     "ask_interview_question": _fake_ask_interview_question,
+    "workload_planning": _fake_workload_plan,
 }
 
 

@@ -79,6 +79,17 @@ class Job(Base):
     # is priced against. Manually entered by the recruiter, never
     # AI-inferred: revenue figures are only ever as real as this number.
     role_value: Mapped[float | None] = mapped_column(Float, default=None)
+    # Client-stated urgency (TAT/prioritization batch) — one of
+    # db_storage.URGENCY_LEVELS. Manually set by the recruiter, same
+    # "never AI-inferred" discipline as role_value: how badly a client
+    # wants a role filled is a fact about the client relationship, not
+    # something derivable from the JD or candidate data.
+    urgency: Mapped[str] = mapped_column(String, default="normal")
+    # The client's stated deadline, if they gave one — an ISO date
+    # string (YYYY-MM-DD), optional. Combined with urgency and tat_days
+    # (see db_storage._tat_days) to drive dashboard prioritization and
+    # the weekly effort-planning stage's inputs.
+    target_fill_date: Mapped[str | None] = mapped_column(String, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
 
@@ -142,12 +153,18 @@ class Task(Base):
     {"candidate_id": ...}); `result` is the stage's own .model_dump() once
     status is "succeeded"; `error` is a human-readable message once status
     is "failed" — the async equivalent of api.py's old synchronous
-    ValueError/RuntimeError -> 400/502 mapping."""
+    ValueError/RuntimeError -> 400/502 mapping.
+
+    `role_id` is nullable (TAT/prioritization batch) for tasks that
+    aren't scoped to one job — e.g. workload_planning, which spans a
+    recruiter's whole roster. Every job-scoped task still sets it, and
+    GET /jobs/{role_id}/tasks/{task_id} still filters on it; the
+    role_id-less ones are polled via GET /team/tasks/{task_id} instead."""
 
     __tablename__ = "tasks"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
-    role_id: Mapped[str] = mapped_column(ForeignKey("jobs.role_id"))
+    role_id: Mapped[str | None] = mapped_column(ForeignKey("jobs.role_id"), default=None)
     kind: Mapped[str] = mapped_column(String)
     status: Mapped[str] = mapped_column(String, default="pending")
     args: Mapped[dict] = mapped_column(JSON, default=dict)

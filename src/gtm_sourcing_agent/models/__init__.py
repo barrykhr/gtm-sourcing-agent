@@ -20,6 +20,7 @@ from .interview import (
     InterviewIntelligenceResult,
     InterviewSummaryResult,
 )
+from .workload import RoleEffortAllocation, WeeklyEffortPlan
 
 __all__ = [
     "JobDescription",
@@ -54,4 +55,6 @@ __all__ = [
     "FollowUpQuestionResult",
     "InterviewCompetencyResult",
     "InterviewIntelligenceResult",
+    "RoleEffortAllocation",
+    "WeeklyEffortPlan",
 ]

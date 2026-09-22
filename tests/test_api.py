@@ -34,6 +34,17 @@ def _wait_for_task(role_id: str, task_id: str, timeout: float = 5.0) -> dict:
     raise AssertionError(f"task {task_id} did not finish within {timeout}s: last seen {task}")
 
 
+def _wait_for_team_task(task_id: str, timeout: float = 5.0) -> dict:
+    deadline = time.time() + timeout
+    task = None
+    while time.time() < deadline:
+        task = client.get(f"/team/tasks/{task_id}").json()
+        if task["status"] in ("succeeded", "failed"):
+            return task
+        time.sleep(0.01)
+    raise AssertionError(f"task {task_id} did not finish within {timeout}s: last seen {task}")
+
+
 @pytest.fixture
 def isolated_db(tmp_path, monkeypatch):
     """Isolated DB *and* an authenticated session (Phase 7: every route
@@ -1142,6 +1153,86 @@ def test_list_clients(isolated_db):
     assert resp.status_code == 200, resp.text
     ids = {c["id"] for c in resp.json()}
     assert ids == {"CLI-0001", "CLI-0002"}
+
+
+# ── TAT / urgency / weekly effort planning ──────────────────────────────
+
+
+def test_new_job_defaults_to_normal_urgency_via_api(isolated_db):
+    resp = client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["urgency"] == "normal"
+    assert body["target_fill_date"] is None
+    assert body["tat_days"] == 0
+
+
+def test_set_job_urgency_via_api(isolated_db):
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    resp = client.patch("/jobs/ae-role/urgency", json={"urgency": "critical"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["urgency"] == "critical"
+
+
+def test_set_job_urgency_rejects_invalid_value_via_api(isolated_db):
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    resp = client.patch("/jobs/ae-role/urgency", json={"urgency": "asap"})
+    assert resp.status_code == 400
+
+
+def test_set_job_target_fill_date_via_api(isolated_db):
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    resp = client.patch("/jobs/ae-role/target-fill-date", json={"target_fill_date": "2026-12-01"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["target_fill_date"] == "2026-12-01"
+
+
+def test_set_job_target_fill_date_rejects_malformed_date_via_api(isolated_db):
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    resp = client.patch("/jobs/ae-role/target-fill-date", json={"target_fill_date": "not-a-date"})
+    assert resp.status_code == 400
+
+
+def test_workload_plan_end_to_end(isolated_db, fake_generate):
+    from gtm_sourcing_agent.models.workload import RoleEffortAllocation, WeeklyEffortPlan
+
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    fake_generate.queue.append(WeeklyEffortPlan(
+        available_days_per_week=5,
+        allocations=[RoleEffortAllocation(role_id="ae-role", title="AE Role", recommended_days_this_week=5, rationale="only open role")],
+    ))
+
+    resp = client.post("/team/workload-plan", json={"available_days_per_week": 5})
+    assert resp.status_code == 202, resp.text
+    task = _wait_for_team_task(resp.json()["task_id"])
+    assert task["status"] == "succeeded"
+    assert task["result"]["allocations"][0]["role_id"] == "ae-role"
+
+
+def test_workload_plan_task_not_visible_via_job_scoped_route(isolated_db, fake_generate):
+    from gtm_sourcing_agent.models.workload import WeeklyEffortPlan
+
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    fake_generate.queue.append(WeeklyEffortPlan(available_days_per_week=5, allocations=[]))
+
+    resp = client.post("/team/workload-plan", json={"available_days_per_week": 5})
+    task_id = resp.json()["task_id"]
+    _wait_for_team_task(task_id)
+
+    assert client.get(f"/jobs/ae-role/tasks/{task_id}").status_code == 404
+
+
+def test_job_scoped_task_not_visible_via_team_route(isolated_db, fake_generate):
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    fake_generate.queue.append(JobDescription(
+        raw_jd_text="x", company="Acme", role_title="AE", function="Sales",
+        seniority="Senior", geography="US", role_objective="x",
+    ))
+    resp = client.post("/jobs/ae-role/intake", json={"jd_text": "some JD"})
+    task_id = resp.json()["task_id"]
+    _wait_for_task("ae-role", task_id)
+
+    assert client.get(f"/team/tasks/{task_id}").status_code == 404
 
 
 # ── revenue intelligence (8.33% model) ──────────────────────────────────

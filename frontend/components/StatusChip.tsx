@@ -27,6 +27,13 @@ export function rygVariant(rating: string | null | undefined): keyof typeof VARI
   return "pending";
 }
 
+/** low/normal -> pending (quiet), high -> running (amber), critical -> critical (red). */
+export function urgencyVariant(urgency: string | null | undefined): keyof typeof VARIANTS {
+  if (urgency === "critical") return "critical";
+  if (urgency === "high") return "running";
+  return "pending";
+}
+
 export function StatusChip({
   label,
   variant,

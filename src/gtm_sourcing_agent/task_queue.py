@@ -31,7 +31,7 @@ from . import db_storage
 
 logger = logging.getLogger(__name__)
 
-TaskRunner = Callable[[str, dict[str, Any]], dict[str, Any]]
+TaskRunner = Callable[[str | None, dict[str, Any]], dict[str, Any]]
 
 _queue: "queue.Queue[str]" = queue.Queue()
 _runners: dict[str, TaskRunner] = {}
@@ -71,7 +71,7 @@ def register_runner(kind: str, fn: TaskRunner) -> None:
     _runners[kind] = fn
 
 
-def enqueue(role_id: str, kind: str, args: dict[str, Any]) -> dict[str, Any]:
+def enqueue(role_id: str | None, kind: str, args: dict[str, Any]) -> dict[str, Any]:
     if kind not in _runners:
         raise ValueError(f"no task runner registered for kind '{kind}'")
     # Recovery must run before this task's own row is created below —

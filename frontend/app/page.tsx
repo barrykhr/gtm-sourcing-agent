@@ -10,6 +10,8 @@ import {
   DueFollowup,
   JOB_LIFECYCLE_LABELS,
   RevenueOverview,
+  URGENCY_LABELS,
+  URGENCY_LEVELS,
   createJob,
   getAnalyticsOverview,
   getAttentionNeeded,
@@ -19,8 +21,9 @@ import {
   listJobs,
   sendOutreachFollowup,
 } from "@/lib/api";
-import { StatusChip } from "@/components/StatusChip";
+import { StatusChip, urgencyVariant } from "@/components/StatusChip";
 import { ProgressBar } from "@/components/ui/ProgressBar";
+import { WeeklyFocusCard } from "@/components/WeeklyFocusCard";
 import { useAuth } from "@/lib/auth-context";
 
 function StatCard({ label, value }: { label: string; value: string | number }) {
@@ -309,6 +312,8 @@ export default function Dashboard() {
         </div>
       )}
 
+      <WeeklyFocusCard />
+
       <form
         onSubmit={handleCreate}
         className="flex flex-wrap items-end gap-3 rounded-lg border border-zinc-200 bg-surface p-4 shadow-[var(--shadow-sm)] dark:border-zinc-800"
@@ -428,7 +433,15 @@ export default function Dashboard() {
           const visible = (jobs ?? [])
             .filter((j) => showClosed || !CLOSED_LIFECYCLE_STATUSES.includes(j.lifecycle_status))
             .filter((j) => !myJobsOnly || j.owner_email === user?.email)
-            .filter((j) => !clientFilter || j.client_name === clientFilter);
+            .filter((j) => !clientFilter || j.client_name === clientFilter)
+            // Priority order (TAT/prioritization batch): most urgent first, then
+            // longest-open first within the same urgency — how badly the client
+            // wants it beats how long it's been sitting, but ties still surface
+            // the role that's been waiting longest.
+            .sort((a, b) => {
+              const urgencyDiff = URGENCY_LEVELS.indexOf(b.urgency) - URGENCY_LEVELS.indexOf(a.urgency);
+              return urgencyDiff !== 0 ? urgencyDiff : b.tat_days - a.tat_days;
+            });
           if (visible.length === 0) {
             return <p className="text-sm text-zinc-500">No jobs match these filters.</p>;
           }
@@ -462,11 +475,26 @@ export default function Dashboard() {
                     <p className="text-xs text-zinc-400">Owner: {job.owner_email}</p>
                   )}
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <StatusChip
                     label={`${done}/${total} stages`}
                     variant={done === total ? "ok" : done === 0 ? "pending" : "running"}
                   />
+                  {(job.urgency === "high" || job.urgency === "critical") && (
+                    <StatusChip label={URGENCY_LABELS[job.urgency]} variant={urgencyVariant(job.urgency)} />
+                  )}
+                  {job.lifecycle_status === "OPEN" && (
+                    <span
+                      className="text-xs text-zinc-500"
+                      title="Turnaround time — days this role has been open"
+                    >
+                      TAT {job.tat_days}d
+                      {job.days_until_due != null &&
+                        (job.days_until_due < 0
+                          ? ` · ${-job.days_until_due}d overdue`
+                          : ` · due in ${job.days_until_due}d`)}
+                    </span>
+                  )}
                   {job.next_stage && (
                     <span className="text-xs text-zinc-500">
                       next: {STAGE_LABELS[job.next_stage] ?? job.next_stage}

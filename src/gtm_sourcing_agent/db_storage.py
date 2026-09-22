@@ -26,7 +26,7 @@ import re
 import secrets
 import unicodedata
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import delete, func, select
@@ -462,6 +462,41 @@ def _get_or_create_client(session: Session, name: str) -> str:
     return client_id
 
 
+# TAT/prioritization batch: client-stated urgency, recruiter-set (see
+# Job.urgency's docstring — never AI-inferred). Order matters here only
+# for _URGENCY_WEIGHT below, not for validity.
+URGENCY_LEVELS = ("low", "normal", "high", "critical")
+_URGENCY_WEIGHT = {level: i for i, level in enumerate(URGENCY_LEVELS)}
+
+
+def _tat_days(job: Job) -> int:
+    """Turnaround time in days: how long this role has been open, or (once
+    filled/cancelled) how long it took. Purely deterministic — no model
+    call, same discipline as analytics_overview(). Uses updated_at as the
+    close time for a FILLED/CANCELLED role: the PATCH that set that
+    lifecycle_status is what touched the row last, so this needs no extra
+    query against ActivityLog for a reasonable approximation."""
+    end = job.updated_at if job.lifecycle_status in ("FILLED", "CANCELLED") else datetime.now(UTC)
+    start = job.created_at
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=UTC)
+    if end.tzinfo is None:
+        end = end.replace(tzinfo=UTC)
+    return max((end - start).days, 0)
+
+
+def _days_until(target_fill_date: str | None) -> int | None:
+    """Positive = days remaining, negative = overdue, None = no deadline
+    was given. Also None on an unparseable stored value rather than
+    raising — a malformed date shouldn't break every job listing."""
+    if not target_fill_date:
+        return None
+    try:
+        return (date.fromisoformat(target_fill_date) - date.today()).days
+    except ValueError:
+        return None
+
+
 def _job_dict(job: Job) -> dict[str, Any]:
     return {
         "role_id": job.role_id, "position_code": job.position_code, "title": job.title,
@@ -469,6 +504,8 @@ def _job_dict(job: Job) -> dict[str, Any]:
         "share_token": job.share_token,
         "lifecycle_status": job.lifecycle_status, "owner_email": job.owner_email,
         "role_value": job.role_value, "expected_revenue": revenue.expected_revenue(job.role_value),
+        "urgency": job.urgency, "target_fill_date": job.target_fill_date,
+        "tat_days": _tat_days(job), "days_until_due": _days_until(job.target_fill_date),
         "created_at": job.created_at, "updated_at": job.updated_at,
     }
 
@@ -664,6 +701,72 @@ def set_job_value(role_id: str, role_value: float | None) -> dict[str, Any]:
         job.role_value = role_value
         session.commit()
         return _job_dict(job)
+
+
+def set_job_urgency(role_id: str, urgency: str) -> dict[str, Any]:
+    """How badly the client wants this role filled (TAT/prioritization
+    batch) — recruiter-set, never AI-inferred, same discipline as
+    set_job_value above. Drives dashboard prioritization and is one of
+    the inputs to workload_planning.py's weekly effort recommendation."""
+    if urgency not in URGENCY_LEVELS:
+        raise ValueError(f"'{urgency}' is not a valid urgency — use one of {URGENCY_LEVELS}")
+    with db.get_session() as session:
+        job = session.get(Job, role_id)
+        if job is None:
+            raise ValueError(f"job '{role_id}' not found")
+        job.urgency = urgency
+        session.commit()
+        return _job_dict(job)
+
+
+def set_job_target_fill_date(role_id: str, target_fill_date: str | None) -> dict[str, Any]:
+    """The client's stated deadline, if they gave one. `None` clears it —
+    meaningfully different from a role with no deadline pressure at all,
+    same "unset vs. genuinely zero" reasoning as set_job_value's None."""
+    if target_fill_date:
+        try:
+            date.fromisoformat(target_fill_date)
+        except ValueError:
+            raise ValueError("target_fill_date must be an ISO date (YYYY-MM-DD)") from None
+    with db.get_session() as session:
+        job = session.get(Job, role_id)
+        if job is None:
+            raise ValueError(f"job '{role_id}' not found")
+        job.target_fill_date = target_fill_date or None
+        session.commit()
+        return _job_dict(job)
+
+
+def list_jobs_for_recruiter(email: str) -> list[dict[str, Any]]:
+    """Every OPEN role this recruiter is on (primary or contributor) —
+    the input to workload_planning.py's weekly effort recommendation.
+    Sorted by urgency then by tat_days (oldest-open first within the same
+    urgency) so the roster handed to the model already reflects
+    deterministic priority, not just whatever order the DB returns."""
+    with db.get_session() as session:
+        role_ids = {
+            row.role_id
+            for row in session.scalars(select(JobRecruiter).where(JobRecruiter.email == email)).all()
+        }
+        if not role_ids:
+            return []
+        jobs = session.scalars(
+            select(Job).where(Job.role_id.in_(role_ids), Job.lifecycle_status == "OPEN")
+        ).all()
+        result = []
+        for job in jobs:
+            state = load_role(job.role_id)
+            funnel = state.get("funnel") or {}
+            stage_counts: dict[str, int] = {}
+            for record in funnel.values():
+                stage = record.get("current_stage", "IDENTIFIED")
+                stage_counts[stage] = stage_counts.get(stage, 0) + 1
+            result.append({
+                **_job_dict(job),
+                "candidates_total": len(funnel),
+                "funnel_stage_counts": stage_counts,
+            })
+        return sorted(result, key=lambda j: (-_URGENCY_WEIGHT[j["urgency"]], -j["tat_days"]))
 
 
 def revenue_overview() -> dict[str, Any]:
@@ -1298,7 +1401,7 @@ def _task_dict(task: Task) -> dict[str, Any]:
     }
 
 
-def create_task(role_id: str, kind: str, args: dict[str, Any]) -> dict[str, Any]:
+def create_task(role_id: str | None, kind: str, args: dict[str, Any]) -> dict[str, Any]:
     with db.get_session() as session:
         task = Task(id=f"task-{uuid.uuid4().hex[:12]}", role_id=role_id, kind=kind, args=args, status="pending")
         session.add(task)

@@ -532,6 +532,145 @@ def test_get_client_returns_none_for_unknown_id(isolated_db):
     assert db_storage.get_client("CLI-9999") is None
 
 
+# ── TAT / urgency / weekly effort planning ──────────────────────────────
+
+
+def test_new_job_defaults_to_normal_urgency(isolated_db):
+    job = db_storage.create_job("acme-ae-2026", title="Acme AE")
+    assert job["urgency"] == "normal"
+    assert job["target_fill_date"] is None
+
+
+def test_set_job_urgency(isolated_db):
+    db_storage.create_job("acme-ae-2026", title="Acme AE")
+    job = db_storage.set_job_urgency("acme-ae-2026", "critical")
+    assert job["urgency"] == "critical"
+
+
+def test_set_job_urgency_rejects_invalid_value(isolated_db):
+    db_storage.create_job("acme-ae-2026", title="Acme AE")
+    with pytest.raises(ValueError, match="not a valid urgency"):
+        db_storage.set_job_urgency("acme-ae-2026", "asap")
+
+
+def test_set_job_urgency_raises_for_missing_job(isolated_db):
+    with pytest.raises(ValueError, match="not found"):
+        db_storage.set_job_urgency("does-not-exist", "high")
+
+
+def test_set_job_target_fill_date(isolated_db):
+    db_storage.create_job("acme-ae-2026", title="Acme AE")
+    job = db_storage.set_job_target_fill_date("acme-ae-2026", "2026-12-01")
+    assert job["target_fill_date"] == "2026-12-01"
+
+
+def test_set_job_target_fill_date_can_clear(isolated_db):
+    db_storage.create_job("acme-ae-2026", title="Acme AE")
+    db_storage.set_job_target_fill_date("acme-ae-2026", "2026-12-01")
+    job = db_storage.set_job_target_fill_date("acme-ae-2026", None)
+    assert job["target_fill_date"] is None
+
+
+def test_set_job_target_fill_date_rejects_malformed_date(isolated_db):
+    db_storage.create_job("acme-ae-2026", title="Acme AE")
+    with pytest.raises(ValueError, match="ISO date"):
+        db_storage.set_job_target_fill_date("acme-ae-2026", "12/01/2026")
+
+
+def test_new_open_job_has_zero_tat_days(isolated_db):
+    job = db_storage.create_job("acme-ae-2026", title="Acme AE")
+    assert job["tat_days"] == 0
+
+
+def test_tat_days_open_role_counts_from_created_at():
+    from datetime import UTC, datetime, timedelta
+
+    from gtm_sourcing_agent.models_orm import Job
+
+    job = Job(role_id="x", lifecycle_status="OPEN", created_at=datetime.now(UTC) - timedelta(days=7))
+    assert db_storage._tat_days(job) == 7
+
+
+def test_tat_days_filled_role_counts_to_updated_at():
+    from datetime import UTC, datetime, timedelta
+
+    from gtm_sourcing_agent.models_orm import Job
+
+    job = Job(
+        role_id="x", lifecycle_status="FILLED",
+        created_at=datetime.now(UTC) - timedelta(days=20),
+        updated_at=datetime.now(UTC) - timedelta(days=5),
+    )
+    assert db_storage._tat_days(job) == 15
+
+
+def test_days_until_positive_for_future_date():
+    from datetime import UTC, datetime, timedelta
+
+    future = (datetime.now(UTC) + timedelta(days=10)).date().isoformat()
+    assert db_storage._days_until(future) == 10
+
+
+def test_days_until_negative_for_overdue_date():
+    from datetime import UTC, datetime, timedelta
+
+    past = (datetime.now(UTC) - timedelta(days=3)).date().isoformat()
+    assert db_storage._days_until(past) == -3
+
+
+def test_days_until_none_when_no_date():
+    assert db_storage._days_until(None) is None
+
+
+def test_days_until_none_for_malformed_date():
+    assert db_storage._days_until("not-a-date") is None
+
+
+def test_list_jobs_for_recruiter_only_includes_open_roles_theyre_on(isolated_db):
+    db_storage.create_job("acme-ae-2026", title="Acme AE", owner_email="r1@example.com")
+    db_storage.create_job("globex-se-2026", title="Globex SE", owner_email="r2@example.com")
+    closed = db_storage.create_job("filled-role", title="Filled Role", owner_email="r1@example.com")
+    db_storage.set_job_lifecycle(closed["role_id"], "FILLED")
+
+    roles = db_storage.list_jobs_for_recruiter("r1@example.com")
+    assert [r["role_id"] for r in roles] == ["acme-ae-2026"]
+
+
+def test_list_jobs_for_recruiter_includes_contributor_roles(isolated_db):
+    db_storage.create_job("acme-ae-2026", title="Acme AE", owner_email="r1@example.com")
+    db_storage.add_recruiter("acme-ae-2026", "r2@example.com")
+
+    roles = db_storage.list_jobs_for_recruiter("r2@example.com")
+    assert [r["role_id"] for r in roles] == ["acme-ae-2026"]
+
+
+def test_list_jobs_for_recruiter_sorts_by_urgency_then_tat(isolated_db):
+    db_storage.create_job("low-role", title="Low", owner_email="r1@example.com")
+    db_storage.create_job("critical-role", title="Critical", owner_email="r1@example.com")
+    db_storage.create_job("normal-role", title="Normal", owner_email="r1@example.com")
+    db_storage.set_job_urgency("low-role", "low")
+    db_storage.set_job_urgency("critical-role", "critical")
+
+    roles = db_storage.list_jobs_for_recruiter("r1@example.com")
+    assert [r["role_id"] for r in roles] == ["critical-role", "normal-role", "low-role"]
+
+
+def test_list_jobs_for_recruiter_includes_funnel_stage_counts(isolated_db):
+    db_storage.create_job("acme-ae-2026", title="Acme AE", owner_email="r1@example.com")
+    db_storage.merge_candidate("acme-ae-2026", "cand-1", {"name": "Jane"})
+    db_storage.merge_section("acme-ae-2026", "funnel", {
+        "cand-1": {"candidate_id": "cand-1", "role_id": "acme-ae-2026", "current_stage": "CONTACTED", "stage_history": []},
+    })
+
+    roles = db_storage.list_jobs_for_recruiter("r1@example.com")
+    assert roles[0]["candidates_total"] == 1
+    assert roles[0]["funnel_stage_counts"] == {"CONTACTED": 1}
+
+
+def test_list_jobs_for_recruiter_empty_for_unknown_recruiter(isolated_db):
+    assert db_storage.list_jobs_for_recruiter("nobody@example.com") == []
+
+
 # ── client-facing share links (Batch B) ─────────────────────────────────
 
 

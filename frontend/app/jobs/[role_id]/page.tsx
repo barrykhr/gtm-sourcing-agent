@@ -19,6 +19,9 @@ import {
   JobLifecycleStatus,
   RoleRecruiter,
   SearchResult,
+  UrgencyLevel,
+  URGENCY_LABELS,
+  URGENCY_LEVELS,
   addCandidate,
   addRecruiter,
   attachExistingCandidate,
@@ -55,6 +58,8 @@ import {
   setJobClient,
   setJobLifecycle,
   setJobOwner,
+  setJobTargetFillDate,
+  setJobUrgency,
   setJobValue,
   setPlacement,
   setRecruiterDecision,
@@ -247,6 +252,8 @@ function JobMetaRow({ job, refresh }: { job: JobDetail; refresh: () => void }) {
   const [clientDraft, setClientDraft] = useState(job.client_name ?? "");
   const [editingValue, setEditingValue] = useState(false);
   const [valueDraft, setValueDraft] = useState(job.role_value != null ? String(job.role_value) : "");
+  const [editingTargetDate, setEditingTargetDate] = useState(false);
+  const [targetDateDraft, setTargetDateDraft] = useState(job.target_fill_date ?? "");
   const [linkCopied, setLinkCopied] = useState(false);
 
   async function changeLifecycle(status: JobLifecycleStatus) {
@@ -256,6 +263,27 @@ function JobMetaRow({ job, refresh }: { job: JobDetail; refresh: () => void }) {
       refresh();
     } catch {
       // surfaced implicitly — refresh() below will just show the unchanged value
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function changeUrgency(urgency: UrgencyLevel) {
+    setBusy(true);
+    try {
+      await setJobUrgency(job.role_id, urgency);
+      refresh();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveTargetDate() {
+    setBusy(true);
+    try {
+      await setJobTargetFillDate(job.role_id, targetDateDraft || null);
+      refresh();
+      setEditingTargetDate(false);
     } finally {
       setBusy(false);
     }
@@ -351,6 +379,58 @@ function JobMetaRow({ job, refresh }: { job: JobDetail; refresh: () => void }) {
           <option key={s} value={s}>{JOB_LIFECYCLE_LABELS[s]}</option>
         ))}
       </select>
+
+      <select
+        value={job.urgency}
+        onChange={(e) => changeUrgency(e.target.value as UrgencyLevel)}
+        disabled={busy}
+        aria-label="Client urgency"
+        title="How badly the client wants this role filled — recruiter-set, drives dashboard prioritization"
+        className={`rounded border px-2 py-1 text-xs font-medium outline-none disabled:opacity-50 ${
+          job.urgency === "critical"
+            ? "border-red-300 bg-red-50 text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-400"
+            : job.urgency === "high"
+              ? "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-400"
+              : "border-zinc-300 bg-zinc-100 text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400"
+        }`}
+      >
+        {URGENCY_LEVELS.map((u) => (
+          <option key={u} value={u}>{URGENCY_LABELS[u]} urgency</option>
+        ))}
+      </select>
+
+      <span title="Turnaround time — days this role has been open (or took to close)">
+        TAT: {job.tat_days}d
+      </span>
+
+      {editingTargetDate ? (
+        <span className="flex items-center gap-1">
+          <input
+            type="date"
+            value={targetDateDraft}
+            onChange={(e) => setTargetDateDraft(e.target.value)}
+            className="rounded border border-zinc-300 px-1.5 py-0.5 text-xs outline-none focus:border-signal-600 dark:border-zinc-700 dark:bg-zinc-950"
+          />
+          <button onClick={saveTargetDate} disabled={busy} className="text-signal-700 hover:underline dark:text-signal-400">Save</button>
+          <button onClick={() => setEditingTargetDate(false)} className="text-zinc-400 hover:underline">Cancel</button>
+        </span>
+      ) : (
+        <button
+          onClick={() => { setTargetDateDraft(job.target_fill_date ?? ""); setEditingTargetDate(true); }}
+          className="hover:underline"
+          title="The client's stated deadline, if they gave one"
+        >
+          {job.target_fill_date
+            ? `Due: ${job.target_fill_date}${
+                job.days_until_due != null
+                  ? job.days_until_due < 0
+                    ? ` (${-job.days_until_due}d overdue)`
+                    : ` (${job.days_until_due}d left)`
+                  : ""
+              }`
+            : "Set deadline"}
+        </button>
+      )}
 
       {editingOwner ? (
         <span className="flex items-center gap-1">

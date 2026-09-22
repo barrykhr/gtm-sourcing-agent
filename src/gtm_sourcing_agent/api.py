@@ -19,7 +19,7 @@ from typing import Any, Literal
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from . import (
@@ -42,6 +42,7 @@ from .stages import prioritization as prioritization_stage
 from .stages import screening as screening_stage
 from .stages import search_strategy as search_strategy_stage
 from .stages import talent_map as talent_map_stage
+from .stages import workload_planning as workload_planning_stage
 
 # Without this, Python's logging defaults leave the root logger with no
 # handler below WARNING — every logger.info() call across this codebase
@@ -506,6 +507,18 @@ class JobValueRequest(BaseModel):
     role_value: float | None = None
 
 
+class JobUrgencyRequest(BaseModel):
+    urgency: str
+
+
+class JobTargetFillDateRequest(BaseModel):
+    target_fill_date: str | None = None
+
+
+class WorkloadPlanRequest(BaseModel):
+    available_days_per_week: float = Field(gt=0, le=7)
+
+
 class CandidateNoteRequest(BaseModel):
     note: str = ""
 
@@ -664,6 +677,20 @@ def list_clients() -> list[dict[str, Any]]:
 def set_job_value(role_id: str, body: JobValueRequest, request: Request) -> dict[str, Any]:
     job = _run_stage(db_storage.set_job_value, role_id, body.role_value)
     _log(request, role_id, "changed role value", detail=str(body.role_value) if body.role_value is not None else "(unset)")
+    return {**job, **_job_summary(role_id)}
+
+
+@app.patch("/jobs/{role_id}/urgency")
+def set_job_urgency(role_id: str, body: JobUrgencyRequest, request: Request) -> dict[str, Any]:
+    job = _run_stage(db_storage.set_job_urgency, role_id, body.urgency)
+    _log(request, role_id, "changed urgency", detail=body.urgency)
+    return {**job, **_job_summary(role_id)}
+
+
+@app.patch("/jobs/{role_id}/target-fill-date")
+def set_job_target_fill_date(role_id: str, body: JobTargetFillDateRequest, request: Request) -> dict[str, Any]:
+    job = _run_stage(db_storage.set_job_target_fill_date, role_id, body.target_fill_date)
+    _log(request, role_id, "changed target fill date", detail=body.target_fill_date or "(unset)")
     return {**job, **_job_summary(role_id)}
 
 
@@ -857,6 +884,29 @@ def team_velocity(_admin: dict[str, Any] = Depends(require_role("admin"))) -> di
     return db_storage.velocity_report()
 
 
+@app.post("/team/workload-plan", status_code=202)
+def request_workload_plan(body: WorkloadPlanRequest, request: Request) -> dict[str, Any]:
+    # Self-service, not admin-only — every recruiter can ask for their
+    # own weekly plan across their own open roles, same visibility level
+    # as the dashboard's "My jobs" filter, not /team/usage's cross-team
+    # admin view. Not job-scoped, so enqueue() gets role_id=None (see
+    # Task.role_id's docstring) and polling goes through
+    # GET /team/tasks/{task_id} instead of the job-scoped route.
+    task = task_queue.enqueue(
+        None, "workload_planning",
+        {"recruiter_email": request.state.user["email"], "available_days_per_week": body.available_days_per_week},
+    )
+    return task
+
+
+@app.get("/team/tasks/{task_id}")
+def get_team_task(task_id: str) -> dict[str, Any]:
+    task = db_storage.get_task(task_id)
+    if task is None or task["role_id"] is not None:
+        raise HTTPException(status_code=404, detail=f"task '{task_id}' not found")
+    return task
+
+
 # ── background task runners (Phase 4) ───────────────────────────────────
 # Every LLM-touching stage call is registered here and executed by
 # task_queue.py's worker thread instead of inline in a request handler —
@@ -931,6 +981,14 @@ def _run_ask_interview_question(role_id: str, args: dict[str, Any]) -> dict[str,
     return interview_intelligence_stage.ask(args["interview_id"], args["question"])
 
 
+def _run_workload_planning(role_id: str | None, args: dict[str, Any]) -> dict[str, Any]:
+    # Not job-scoped (role_id is always None for this kind) — see
+    # Task.role_id's docstring in models_orm.py.
+    return workload_planning_stage.run(
+        args["recruiter_email"], args["available_days_per_week"], storage_backend=db_storage
+    ).model_dump()
+
+
 for _kind, _fn in [
     ("intake", _run_intake),
     ("calibrate", _run_calibrate),
@@ -947,6 +1005,7 @@ for _kind, _fn in [
     ("process_interview", _run_process_interview),
     ("analyze_interview", _run_analyze_interview),
     ("ask_interview_question", _run_ask_interview_question),
+    ("workload_planning", _run_workload_planning),
 ]:
     task_queue.register_runner(_kind, _fn)
 
