@@ -54,6 +54,26 @@ class Candidate(BaseModel):
     recommended_next_action: str = ""
 
 
+CompetencyDimension = Literal[
+    "technical_alignment", "role_motivation", "team_alignment", "communication", "compensation_alignment"
+]
+StrengthLabel = Literal["STRONG", "MODERATE", "WEAK", "CONFIRMED", "UNCONFIRMED"]
+
+
+class CompetencyScore(BaseModel):
+    """One axis of the fit assessment, scored and labeled independently of
+    the overall fit_score/fit_rating below — those stay the single fast
+    read; this is the breakdown behind it. `compensation_alignment` is the
+    one dimension that's a factual match rather than a strength judgment,
+    so its label is CONFIRMED/UNCONFIRMED rather than STRONG/WEAK."""
+
+    dimension: CompetencyDimension
+    label: str = Field(description="human-readable dimension name, e.g. 'Technical alignment'")
+    score: int = Field(ge=0, le=100, description="how strongly the evidence supports this dimension")
+    strength: StrengthLabel
+    rationale: str = Field(default="", description="one sentence grounding the score in specific evidence, never a restatement of the label")
+
+
 class CandidatePrioritization(BaseModel):
     """Never a rejection mechanism (Architecture §1.1): `tier` is a
     recommendation with rationale. `recruiter_decision` is the only field
@@ -69,6 +89,10 @@ class CandidatePrioritization(BaseModel):
     fit_rating: FitRating = Field(
         default="YELLOW",
         description="RED = clear mismatch, YELLOW = partial fit / needs validation, GREEN = strong fit — a fast visual read, tier stays the primary recommendation",
+    )
+    competency_scores: list[CompetencyScore] = Field(
+        default_factory=list,
+        description="per-dimension breakdown (technical/role/team/communication alignment + compensation), each independently scored and grounded in evidence",
     )
     why_they_fit: list[str] = Field(default_factory=list)
     weaknesses: list[str] = Field(

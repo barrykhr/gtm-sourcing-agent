@@ -1,7 +1,7 @@
 from .job_description import JobDescription, RequirementClassification
 from .icp import HiringManagerCalibration, IdealCandidateProfile
 from .talent_map import TargetCompany, TitleIntelligence, SearchStrategy, TalentMap
-from .candidate import EvidenceLevel, EvidencedFact, Candidate, CandidatePrioritization
+from .candidate import CompetencyScore, EvidenceLevel, EvidencedFact, Candidate, CandidatePrioritization
 from .screening import ScreeningQuestionSet
 from .interview_questions import (
     InterviewQuestion,
@@ -34,6 +34,7 @@ __all__ = [
     "EvidencedFact",
     "Candidate",
     "CandidatePrioritization",
+    "CompetencyScore",
     "ScreeningQuestionSet",
     "InterviewQuestion",
     "InterviewQuestionGeneration",

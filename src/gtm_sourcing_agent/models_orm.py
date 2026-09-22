@@ -25,17 +25,42 @@ def _now() -> datetime:
     return datetime.now(UTC)
 
 
+class Client(Base):
+    """An external client a recruiting team places roles for. `client_name`
+    on Job (Batch B) was free text with no identity behind it — this gives
+    each distinct client a stable, sequential id (find-or-created by name,
+    see db_storage._get_or_create_client) that stays the same across every
+    role placed for them. The id doubles as the credential a future
+    client-facing login would be issued against, so it needs to be short,
+    stable, and never regenerated once assigned."""
+
+    __tablename__ = "clients"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    name: Mapped[str] = mapped_column(String, unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
 class Job(Base):
     __tablename__ = "jobs"
 
     role_id: Mapped[str] = mapped_column(String, primary_key=True)
+    # Human-facing requisition code (e.g. "POS-0001") — assigned once at
+    # creation, sequential and never reassigned. role_id is a URL slug
+    # derived from the title and can look different from job to job
+    # ("enterprise-ae", "enterprise-ae-2" on a title collision); this is
+    # the stable short reference recruiters actually quote to each other.
+    # Nullable only so existing rows can be backfilled by migration.
+    position_code: Mapped[str | None] = mapped_column(String, unique=True, default=None)
     title: Mapped[str | None] = mapped_column(String, default=None)
     role_family: Mapped[str | None] = mapped_column(String, default=None)
     # Which external client this role is for (Batch B) — a consultancy
     # runs many clients' roles at once through one shared workspace, and
     # nothing before this let you tell them apart. Optional: an internal
-    # recruiting team has no client to name.
+    # recruiting team has no client to name. client_id (this batch) is the
+    # normalized Client row behind this name — see Client above.
     client_name: Mapped[str | None] = mapped_column(String, default=None)
+    client_id: Mapped[str | None] = mapped_column(ForeignKey("clients.id"), default=None)
     # Client-facing share link (Batch B) — a random token, unset by
     # default; set only when a recruiter explicitly generates a link, and
     # unset again on revoke. Never the role_id itself — a rotatable,

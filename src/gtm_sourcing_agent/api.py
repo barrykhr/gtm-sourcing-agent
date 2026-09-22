@@ -652,6 +652,14 @@ def set_job_client(role_id: str, body: JobClientRequest, request: Request) -> di
     return {**job, **_job_summary(role_id)}
 
 
+@app.get("/clients")
+def list_clients() -> list[dict[str, Any]]:
+    # Every distinct client tagged onto any job, each with the stable id
+    # assigned at first use (see db_storage._get_or_create_client) — the
+    # id a future client-facing login would be issued against.
+    return db_storage.list_clients()
+
+
 @app.patch("/jobs/{role_id}/value")
 def set_job_value(role_id: str, body: JobValueRequest, request: Request) -> dict[str, Any]:
     job = _run_stage(db_storage.set_job_value, role_id, body.role_value)

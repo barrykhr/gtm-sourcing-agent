@@ -29,12 +29,12 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from . import db, file_storage, revenue
 from .models_orm import (
-    ActivityLog, CandidateEvaluation, CanonicalCandidate, CommunicationLogEntry, FollowUpQuestion,
+    ActivityLog, CandidateEvaluation, CanonicalCandidate, Client, CommunicationLogEntry, FollowUpQuestion,
     InterviewCompetency, InterviewEvidence, InterviewSession, Job, JobRecruiter, JobSection, Task,
     TranscriptSegment, User, WorkspaceSettings,
 )
@@ -430,10 +430,43 @@ def set_conversation_summary(role_id: str, candidate_id: str, summary: str, entr
         session.commit()
 
 
+def _next_sequential_code(existing_codes: list[str | None], *, prefix: str) -> str:
+    nums = []
+    for code in existing_codes:
+        if code and code.startswith(prefix):
+            tail = code[len(prefix):]
+            if tail.isdigit():
+                nums.append(int(tail))
+    return f"{prefix}{max(nums, default=0) + 1:04d}"
+
+
+def _next_position_code(session: Session) -> str:
+    codes = session.scalars(select(Job.position_code)).all()
+    return _next_sequential_code(codes, prefix="POS-")
+
+
+def _get_or_create_client(session: Session, name: str) -> str:
+    """Find-or-create a Client row by name (case/whitespace-insensitive
+    match), returning its stable id. Called from create_job/set_job_client
+    so the same client name always resolves to the same id across every
+    role placed for them — see Client's docstring in models_orm.py for why
+    this id needs to be stable rather than regenerated per job."""
+    name = name.strip()
+    existing = session.scalars(select(Client).where(func.lower(Client.name) == name.lower())).first()
+    if existing is not None:
+        return existing.id
+    codes = session.scalars(select(Client.id)).all()
+    client_id = _next_sequential_code(codes, prefix="CLI-")
+    session.add(Client(id=client_id, name=name))
+    session.flush()
+    return client_id
+
+
 def _job_dict(job: Job) -> dict[str, Any]:
     return {
-        "role_id": job.role_id, "title": job.title, "role_family": job.role_family,
-        "client_name": job.client_name, "share_token": job.share_token,
+        "role_id": job.role_id, "position_code": job.position_code, "title": job.title,
+        "role_family": job.role_family, "client_name": job.client_name, "client_id": job.client_id,
+        "share_token": job.share_token,
         "lifecycle_status": job.lifecycle_status, "owner_email": job.owner_email,
         "role_value": job.role_value, "expected_revenue": revenue.expected_revenue(job.role_value),
         "created_at": job.created_at, "updated_at": job.updated_at,
@@ -452,13 +485,17 @@ def create_job(
     api.py passes the authenticated recruiter's email; left unset for
     calls (e.g. from tests) that don't have one. `client_name` (Batch B)
     is optional — an internal recruiting team has no client to name.
+    `position_code` is always assigned here, sequentially, and never
+    reassigned — see Job.position_code's docstring in models_orm.py.
     """
     with db.get_session() as session:
         job = session.get(Job, role_id)
         if job is None:
             job = Job(
-                role_id=role_id, title=title or role_id, role_family=role_family,
+                role_id=role_id, position_code=_next_position_code(session),
+                title=title or role_id, role_family=role_family,
                 owner_email=owner_email or None, client_name=client_name or None,
+                client_id=_get_or_create_client(session, client_name) if client_name else None,
                 role_value=role_value,
             )
             session.add(job)
@@ -471,6 +508,7 @@ def create_job(
                 job.role_family = role_family
             if client_name:
                 job.client_name = client_name
+                job.client_id = _get_or_create_client(session, client_name)
         session.commit()
         return _job_dict(job)
 
@@ -589,9 +627,28 @@ def set_job_client(role_id: str, client_name: str | None) -> dict[str, Any]:
         job = session.get(Job, role_id)
         if job is None:
             raise ValueError(f"job '{role_id}' not found")
-        job.client_name = client_name or None
+        name = (client_name or "").strip()
+        job.client_name = name or None
+        job.client_id = _get_or_create_client(session, name) if name else None
         session.commit()
         return _job_dict(job)
+
+
+def get_client(client_id: str) -> dict[str, Any] | None:
+    """Looked up when issuing a client-facing login against this id (not
+    built yet — see Client's docstring in models_orm.py) and by
+    list_clients below."""
+    with db.get_session() as session:
+        client = session.get(Client, client_id)
+        if client is None:
+            return None
+        return {"id": client.id, "name": client.name, "created_at": client.created_at}
+
+
+def list_clients() -> list[dict[str, Any]]:
+    with db.get_session() as session:
+        clients = session.scalars(select(Client).order_by(Client.name)).all()
+        return [{"id": c.id, "name": c.name, "created_at": c.created_at} for c in clients]
 
 
 def set_job_value(role_id: str, role_value: float | None) -> dict[str, Any]:

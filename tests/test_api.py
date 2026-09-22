@@ -1120,6 +1120,30 @@ def test_set_job_client_can_clear(isolated_db):
     assert resp.json()["client_name"] is None
 
 
+# ── position + client ids ────────────────────────────────────────────────
+
+
+def test_create_job_returns_position_code(isolated_db):
+    resp = client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["position_code"] == "POS-0001"
+
+
+def test_create_job_with_client_name_returns_client_id(isolated_db):
+    resp = client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role", "client_name": "Acme Robotics"})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["client_id"] == "CLI-0001"
+
+
+def test_list_clients(isolated_db):
+    client.post("/jobs", json={"title": "AE Role", "role_id": "ae-role", "client_name": "Acme Robotics"})
+    client.post("/jobs", json={"title": "SE Role", "role_id": "se-role", "client_name": "Globex Corp"})
+    resp = client.get("/clients")
+    assert resp.status_code == 200, resp.text
+    ids = {c["id"] for c in resp.json()}
+    assert ids == {"CLI-0001", "CLI-0002"}
+
+
 # ── revenue intelligence (8.33% model) ──────────────────────────────────
 
 

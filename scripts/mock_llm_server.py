@@ -24,6 +24,7 @@ from gtm_sourcing_agent.models import (  # noqa: E402
     Candidate,
     CandidatePrioritization,
     CompetencyEvidenceRef,
+    CompetencyScore,
     ConversationIntelligence,
     ConversationSummaryResult,
     FollowUpQuestionResult,
@@ -216,6 +217,28 @@ def _fake_prioritization(**_) -> CandidatePrioritization:
         tier="A",
         fit_score=87,
         fit_rating="GREEN",
+        competency_scores=[
+            CompetencyScore(
+                dimension="technical_alignment", label="Technical alignment", score=88, strength="STRONG",
+                rationale="132% quota attainment on a comparable $1M enterprise quota matches the must-have bar directly.",
+            ),
+            CompetencyScore(
+                dimension="role_motivation", label="Role motivation", score=76, strength="STRONG",
+                rationale="Moved from mid-market to enterprise deals over the last two roles, the same trajectory this role continues.",
+            ),
+            CompetencyScore(
+                dimension="team_alignment", label="Team alignment", score=71, strength="STRONG",
+                rationale="Carried an individual quota with no reports, matching the ICP's individual-contributor seniority level.",
+            ),
+            CompetencyScore(
+                dimension="communication", label="Communication", score=68, strength="STRONG",
+                rationale="Resume achievements are specific and quantified (ACV, cycle length) rather than generic — a proxy signal only, not observed communication.",
+            ),
+            CompetencyScore(
+                dimension="compensation_alignment", label="Compensation alignment", score=100, strength="CONFIRMED",
+                rationale="Expected CTC is stated and falls within the ICP's compensation band.",
+            ),
+        ],
         why_they_fit=["132% quota attainment matches the must-have bar", "Enterprise segment at a comparable company"],
         weaknesses=["No visibility into win rate or self-sourced vs. inbound split"],
         what_is_unknown=["Win rate", "Whether deals were self-sourced or inbound"],

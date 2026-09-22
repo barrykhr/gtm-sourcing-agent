@@ -107,9 +107,16 @@ export const CLOSED_LIFECYCLE_STATUSES: JobLifecycleStatus[] = ["FILLED", "CANCE
 
 export type JobSummary = {
   role_id: string;
+  // Human-facing requisition code (e.g. "POS-0001") — sequential, assigned
+  // once at creation, never reassigned. Distinct from role_id, a URL slug
+  // that can change shape on a title collision ("enterprise-ae-2").
+  position_code: string | null;
   title: string;
   role_family: string | null;
   client_name: string | null;
+  // Stable id behind client_name (e.g. "CLI-0001") — the same client name
+  // always resolves to the same id across every role placed for them.
+  client_id: string | null;
   share_token: string | null;
   lifecycle_status: JobLifecycleStatus;
   owner_email: string | null;
@@ -131,6 +138,23 @@ export type JobDetail = JobSummary & {
 export type EvidencedFact = { fact: string; evidence_level: "VERIFIED" | "NOT_STATED" | "INFERRED"; source: string };
 
 export type FitRating = "RED" | "YELLOW" | "GREEN";
+
+export type CompetencyDimension =
+  | "technical_alignment"
+  | "role_motivation"
+  | "team_alignment"
+  | "communication"
+  | "compensation_alignment";
+
+export type CompetencyStrength = "STRONG" | "MODERATE" | "WEAK" | "CONFIRMED" | "UNCONFIRMED";
+
+export type CompetencyScore = {
+  dimension: CompetencyDimension;
+  label: string;
+  score: number;
+  strength: CompetencyStrength;
+  rationale: string;
+};
 
 export type Candidate = {
   candidate_id: string;
@@ -162,6 +186,7 @@ export type Candidate = {
     tier: "A" | "B" | "C" | "D";
     fit_score: number;
     fit_rating: FitRating;
+    competency_scores: CompetencyScore[];
     why_they_fit: string[];
     weaknesses: string[];
     what_is_unknown: string[];
@@ -255,6 +280,12 @@ export const removeRecruiter = (roleId: string, email: string) =>
 
 export const setJobClient = (roleId: string, clientName: string | null) =>
   patch<JobSummary>(`/jobs/${roleId}/client`, { client_name: clientName });
+
+// Every distinct client tagged onto any job, each with the stable id
+// assigned at first use — the id a future client-facing login would be
+// issued against (not built yet).
+export type ClientRecord = { id: string; name: string; created_at: string };
+export const listClients = () => get<ClientRecord[]>("/clients");
 
 export const setJobValue = (roleId: string, roleValue: number | null) =>
   patch<JobSummary>(`/jobs/${roleId}/value`, { role_value: roleValue });

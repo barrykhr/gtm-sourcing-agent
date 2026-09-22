@@ -470,6 +470,68 @@ def test_set_job_client_raises_for_missing_job(isolated_db):
         db_storage.set_job_client("does-not-exist", "Acme Robotics")
 
 
+# ── position + client ids ────────────────────────────────────────────────
+
+
+def test_create_job_assigns_sequential_position_codes(isolated_db):
+    first = db_storage.create_job("acme-ae-2026", title="Acme AE")
+    second = db_storage.create_job("globex-se-2026", title="Globex SE")
+    assert first["position_code"] == "POS-0001"
+    assert second["position_code"] == "POS-0002"
+
+
+def test_position_code_is_never_reassigned_on_recreate_call(isolated_db):
+    db_storage.create_job("acme-ae-2026", title="Acme AE")
+    again = db_storage.create_job("acme-ae-2026", title="Acme AE (updated)")
+    assert again["position_code"] == "POS-0001"
+
+
+def test_create_job_with_client_name_assigns_client_id(isolated_db):
+    job = db_storage.create_job("acme-ae-2026", title="Acme AE", client_name="Acme Robotics")
+    assert job["client_id"] == "CLI-0001"
+
+
+def test_create_job_without_client_name_leaves_client_id_none(isolated_db):
+    job = db_storage.create_job("acme-ae-2026", title="Acme AE")
+    assert job["client_id"] is None
+
+
+def test_same_client_name_reuses_client_id_across_jobs(isolated_db):
+    first = db_storage.create_job("acme-ae-2026", title="Acme AE", client_name="Acme Robotics")
+    second = db_storage.create_job("acme-se-2026", title="Acme SE", client_name="acme robotics")
+    assert first["client_id"] == second["client_id"] == "CLI-0001"
+
+
+def test_different_client_names_get_different_ids(isolated_db):
+    first = db_storage.create_job("acme-ae-2026", title="Acme AE", client_name="Acme Robotics")
+    second = db_storage.create_job("globex-se-2026", title="Globex SE", client_name="Globex Corp")
+    assert first["client_id"] == "CLI-0001"
+    assert second["client_id"] == "CLI-0002"
+
+
+def test_set_job_client_assigns_client_id(isolated_db):
+    db_storage.create_job("acme-ae-2026", title="Acme AE")
+    result = db_storage.set_job_client("acme-ae-2026", "Globex Corp")
+    assert result["client_id"] == "CLI-0001"
+
+
+def test_set_job_client_none_clears_client_id(isolated_db):
+    db_storage.create_job("acme-ae-2026", title="Acme AE", client_name="Acme Robotics")
+    result = db_storage.set_job_client("acme-ae-2026", None)
+    assert result["client_id"] is None
+
+
+def test_list_clients_returns_created_clients(isolated_db):
+    db_storage.create_job("acme-ae-2026", title="Acme AE", client_name="Acme Robotics")
+    db_storage.create_job("globex-se-2026", title="Globex SE", client_name="Globex Corp")
+    clients = db_storage.list_clients()
+    assert {c["id"] for c in clients} == {"CLI-0001", "CLI-0002"}
+
+
+def test_get_client_returns_none_for_unknown_id(isolated_db):
+    assert db_storage.get_client("CLI-9999") is None
+
+
 # ── client-facing share links (Batch B) ─────────────────────────────────
 
 

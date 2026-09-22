@@ -451,6 +451,9 @@ export default function Dashboard() {
                       </span>
                     )}
                   </div>
+                  {job.position_code && (
+                    <p className="font-mono text-[11px] text-muted-foreground">{job.position_code}</p>
+                  )}
                   {job.role_family && <p className="text-xs text-zinc-500">{job.role_family}</p>}
                   {job.client_name && (
                     <p className="text-xs font-medium text-signal-700 dark:text-signal-400">{job.client_name}</p>

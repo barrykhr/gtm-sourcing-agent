@@ -71,6 +71,7 @@ import { CopilotPanel } from "@/components/CopilotPanel";
 import { CommunicationsCard } from "@/components/CommunicationsCard";
 import { InterviewsCard } from "@/components/InterviewsCard";
 import { IntelligenceCard } from "@/components/IntelligenceCard";
+import { CompetencyScorePanel } from "@/components/CompetencyScorePanel";
 import { useAuth } from "@/lib/auth-context";
 
 const TABS = [
@@ -326,6 +327,15 @@ function JobMetaRow({ job, refresh }: { job: JobDetail; refresh: () => void }) {
 
   return (
     <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-zinc-500">
+      {job.position_code && (
+        <span
+          className="font-mono text-[11px] tracking-wide text-muted-foreground"
+          title="Position ID — assigned once at creation, never reassigned"
+        >
+          {job.position_code}
+        </span>
+      )}
+
       <select
         value={job.lifecycle_status}
         onChange={(e) => changeLifecycle(e.target.value as JobLifecycleStatus)}
@@ -378,8 +388,10 @@ function JobMetaRow({ job, refresh }: { job: JobDetail; refresh: () => void }) {
         <button
           onClick={() => { setClientDraft(job.client_name ?? ""); setEditingClient(true); }}
           className="hover:underline"
+          title={job.client_id ? "This id can later be used to create the client's login" : undefined}
         >
           Client: {job.client_name ?? "none"}
+          {job.client_id && <span className="font-mono text-[11px] text-muted-foreground"> ({job.client_id})</span>}
         </button>
       )}
 
@@ -1787,9 +1799,15 @@ function CandidatesTab({
                             </Card>
 
                             {c.prioritization && (
-                              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                                <Card title="Why they fit"><List items={c.prioritization.why_they_fit} /></Card>
-                                <Card title="Weaknesses"><List items={c.prioritization.weaknesses} /></Card>
+                              <CompetencyScorePanel
+                                scores={c.prioritization.competency_scores}
+                                whyTheyFit={c.prioritization.why_they_fit}
+                                watch={c.prioritization.weaknesses}
+                              />
+                            )}
+
+                            {c.prioritization && (
+                              <div className="grid gap-3 sm:grid-cols-2">
                                 <Card title="Unknown"><List items={c.prioritization.what_is_unknown} /></Card>
                                 <Card title="To validate"><List items={c.prioritization.what_to_validate} /></Card>
                               </div>
