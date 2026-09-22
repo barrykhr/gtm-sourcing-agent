@@ -131,12 +131,13 @@
   --font-serif: var(--font-newsreader);
 }
 
-/* Light is the only rendered mode for now — deliberately not gated on
-   prefers-color-scheme. This app has no theme toggle yet, so following
-   the OS setting meant some visitors landed on the dark palette with no
-   way to switch, which read as "the app is dark" rather than "your
-   system prefers dark." The dark tokens stay defined and ready for a
-   real toggle later (:root[data-theme="dark"]), just not auto-applied. */
+/* Dark is now the app's rendered mode by default (layout.tsx sets
+   data-theme="dark" on <html>), matching the reference product mockup —
+   the "TALYNT OS" recruiter workspace is an ink-900 canvas, not a light
+   one. Still applied via the attribute rather than prefers-color-scheme,
+   since there's no toggle yet and a visitor's OS light/dark preference
+   shouldn't silently decide the product's look. The light tokens above
+   stay defined and ready for a real toggle later. */
 :root[data-theme="dark"] {
   color-scheme: dark;
   /* The website's own tone-ink section: ink-900 background, paper-100
