@@ -36,6 +36,37 @@ def test_get_session_still_works_against_sqlite(tmp_path, monkeypatch):
         session.close()
 
 
+def test_run_migrations_survives_a_percent_sign_in_the_url(tmp_path, monkeypatch):
+    """Reproduces a real production failure: a percent-encoded password
+    (e.g. Supabase generates one containing '%40' for '@') in DATABASE_URL
+    made Alembic's Config (backed by configparser, which treats a bare
+    '%' as the start of an interpolation reference) raise
+    ValueError("invalid interpolation syntax...") before a single
+    migration could run — not a database connectivity problem, a bug in
+    how the URL reaches Alembic's Config, in two places: db.py's own
+    _run_migrations, and migrations/env.py's independent _database_url()
+    call (used when `alembic` is invoked directly from the CLI — see
+    migrations/README — which doesn't go through _run_migrations at all,
+    so needs the same fix applied separately). monkeypatching DATABASE_URL
+    (not just passing a url= argument) is required so env.py's own call
+    sees the same '%'-containing value and would also crash if its fix
+    were missing. A SQLite path with a literal '%' in it reproduces the
+    same configparser failure without needing a real Postgres server."""
+    # SQLAlchemy URL-decodes the path portion of a sqlite:/// URL (so this
+    # isn't literally the filename that lands on disk) — the point is only
+    # that migrating doesn't raise on the '%' characters and really runs,
+    # not where the file ends up.
+    db_path = tmp_path / "db%40with%26percents.db"
+    url = f"sqlite:///{db_path}"
+    monkeypatch.setenv("DATABASE_URL", url)
+    db._run_migrations(url)
+
+    from sqlalchemy import create_engine, inspect
+    inspector = inspect(create_engine(url))
+    assert "alembic_version" in inspector.get_table_names()
+    assert "users" in inspector.get_table_names()
+
+
 def test_fresh_db_gets_migrated_to_head(tmp_path, monkeypatch):
     """A brand-new database file should end up with every table Alembic
     knows about, stamped at the latest revision — not just whatever

@@ -56,7 +56,14 @@ def _run_migrations(url: str) -> None:
 
     cfg = Config(str(REPO_ROOT / "alembic.ini"))
     cfg.set_main_option("script_location", str(REPO_ROOT / "migrations"))
-    cfg.set_main_option("sqlalchemy.url", url)
+    # Alembic's Config is backed by configparser, which treats a literal
+    # '%' in a value as the start of an interpolation reference (e.g.
+    # '%(foo)s') and raises ValueError if what follows isn't valid
+    # interpolation syntax. A percent-encoded password in the URL (common
+    # with a managed Postgres provider's generated password, e.g. '%40'
+    # for '@') trips this — '%%' is configparser's own escape for a
+    # literal '%', so double every '%' before handing the URL to it.
+    cfg.set_main_option("sqlalchemy.url", url.replace("%", "%%"))
     command.upgrade(cfg, "head")
 
 

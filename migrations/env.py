@@ -19,7 +19,17 @@ from gtm_sourcing_agent.models_orm import Base  # noqa: E402
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
-config.set_main_option("sqlalchemy.url", _database_url())
+# set_main_option() is backed by configparser, which treats a bare '%' in
+# a value as the start of an interpolation reference and raises
+# ValueError if what follows isn't valid interpolation syntax — a
+# percent-encoded password in DATABASE_URL (e.g. '%40' for '@', which a
+# managed Postgres provider's generated password can easily contain)
+# trips this. '%%' is configparser's own escape for a literal '%', so
+# double every '%' here — same fix as db.py's _run_migrations, needed
+# independently since this call also goes through set_main_option and
+# isn't reached through that function when `alembic` is invoked directly
+# from the CLI (see migrations/README) rather than via db.py.
+config.set_main_option("sqlalchemy.url", _database_url().replace("%", "%%"))
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
