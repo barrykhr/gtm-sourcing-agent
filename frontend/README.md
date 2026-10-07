@@ -3,7 +3,10 @@
 The job dashboard and job workspace UI for the [Talyn](../README.md)
 product layer (Phase 1 — see [`../docs/product-plan.md`](../docs/product-plan.md)).
 A React/Next.js SPA calling the FastAPI service (`../src/gtm_sourcing_agent/api.py`)
-directly from the browser — no server-side data fetching, no proxying.
+through this app's own `/api/*` — `next.config.ts` rewrites that server-side
+to `BACKEND_URL`, so the browser never makes a cross-site request to the
+backend at all (keeps the session cookie first-party even when frontend
+and backend live on different domains — see `next.config.ts`'s comment).
 
 ## What's here
 
@@ -26,7 +29,8 @@ npm run dev            # http://localhost:3000
 ```
 
 Needs the FastAPI service running and reachable at
-`NEXT_PUBLIC_API_URL` (defaults to `http://localhost:8000`) — see
+`BACKEND_URL` (defaults to `http://localhost:8000`, read server-side only
+by `next.config.ts`'s rewrite — see `.env.example`) — see
 `../docs/product-plan.md` for how to start it, and use
 `../scripts/mock_llm_server.py` instead of the real API if you want to
 exercise the UI without an `ANTHROPIC_API_KEY`.

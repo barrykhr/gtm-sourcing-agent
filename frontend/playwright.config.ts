@@ -52,7 +52,12 @@ export default defineConfig({
         DATABASE_URL: `sqlite:///${E2E_DB_PATH}`,
         GTM_CORS_ORIGINS: `http://localhost:${WEB_PORT}`,
         GTM_FRONTEND_URL: `http://localhost:${WEB_PORT}`,
-        GTM_COOKIE_SAMESITE: "none",
+        // Deliberately NOT GTM_COOKIE_SAMESITE=none — the whole point of
+        // the frontend's /api/* proxy (next.config.ts) is that it isn't
+        // needed: requests arrive here from Vercel's/Next's own server,
+        // never directly from the browser, so the default SameSite=Lax
+        // is correct and this test should prove that, not paper over a
+        // broken proxy with the old cross-origin cookie workaround.
       },
     },
     {
@@ -61,7 +66,10 @@ export default defineConfig({
       reuseExistingServer: false,
       timeout: 60_000,
       env: {
-        NEXT_PUBLIC_API_URL: `http://localhost:${API_PORT}`,
+        // Proxied through next.config.ts's rewrite (same-origin from the
+        // browser's point of view, forwarded server-side to this) — not
+        // NEXT_PUBLIC_API_URL, which lib/api.ts no longer reads.
+        BACKEND_URL: `http://localhost:${API_PORT}`,
       },
     },
   ],

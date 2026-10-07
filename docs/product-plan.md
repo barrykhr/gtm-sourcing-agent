@@ -838,30 +838,40 @@ serverless-only, since the task queue's worker thread and SQLite file
 both need one long-lived process).
 
 Putting frontend and backend on **different domains** makes the session
-cookie a cross-site cookie from the browser's point of view, which needs
-different settings than local dev:
+cookie a cross-site cookie from the browser's point of view. A
+`SameSite=None; Secure` cookie (below) is necessary for that but turned
+out not to be sufficient in practice: modern Chrome's third-party-cookie
+blocking silently refuses to store or resend a cookie set by a
+cross-site `fetch()` even when every attribute is correct — it never
+shows up as a clear error, the cookie just never persists. The fix that
+actually works is avoiding the cross-site request in the first place:
 
-- `GTM_COOKIE_SAMESITE=none` (backend env var) — `SameSite=Lax`, the
-  local-dev default, is not sent on cross-origin `fetch()` calls at all;
-  `None` is required for the frontend's calls to carry the cookie.
-  Setting this also forces `secure=True` regardless of
-  `GTM_COOKIE_SECURE`, since browsers reject a `SameSite=None` cookie
-  that isn't `Secure` — both requirements come from browser cookie
-  semantics, not this app's own choice.
+- `BACKEND_URL` (frontend server-side env var, **not**
+  `NEXT_PUBLIC_API_URL`) — `next.config.ts` rewrites this app's own
+  `/api/*` to `${BACKEND_URL}/*` server-side (Vercel-to-Render, not
+  browser-to-Render), and `lib/api.ts`'s `API_BASE` is just `/api`. The
+  browser only ever talks to its own origin, so the cookie is first-party
+  and ordinary `SameSite=Lax` works — no third-party-cookie blocking to
+  fight. Not `NEXT_PUBLIC_`-prefixed since it's never read in the
+  browser, which also means the backend's real URL doesn't need to be
+  public.
+- `GTM_COOKIE_SAMESITE=none` (backend env var) is no longer required once
+  the rewrite above is in place (requests arrive at the backend from
+  Vercel's servers, not the browser, so there's no cross-site cookie
+  question left to answer) — harmless to leave set if it already is, but
+  new deployments don't need it.
 - `GTM_CORS_ORIGINS=https://<your-frontend-domain>` (backend env var) —
-  must be the exact deployed frontend origin (scheme + host, no
-  trailing slash); wide open (`*`) doesn't work here since
-  `allow_credentials=True` requires an explicit origin.
-- `NEXT_PUBLIC_API_URL=https://<your-backend-domain>` (frontend build-time
-  env var) — every API call in `lib/api.ts` is relative to this.
+  still worth setting for direct backend testing (curl, a non-proxied
+  client), but the deployed frontend no longer depends on it for its own
+  requests once they're proxied.
 - The backend binds `$PORT`/`0.0.0.0` automatically when `$PORT` is set
   (`scripts/mock_llm_server.py`) — the convention most Python-hosting
   platforms use to tell a service which port to listen on.
 
-Same-domain deployments (frontend and backend both under one domain, via
-a reverse proxy or platform-level rewrite) don't need any of this —
-`SameSite=Lax` already works when there's no cross-site request in the
-first place.
+Same-domain deployments (frontend and backend both under one domain
+already) don't need `BACKEND_URL` to point cross-domain at all, but the
+rewrite is harmless either way — it's just forwarding to wherever the
+backend actually is.
 
 One limitation worth knowing going in: most free hosting tiers for a
 persistent Python process use an **ephemeral filesystem** — the SQLite

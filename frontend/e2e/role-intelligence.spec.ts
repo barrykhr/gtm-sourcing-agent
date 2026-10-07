@@ -10,8 +10,6 @@ import { expect, test } from "@playwright/test";
  * verify the change history records who changed what.
  */
 
-const API_BASE = "http://localhost:8311";
-
 test.describe("Role Intelligence", () => {
   test("create role, add/edit/remove a requirement through the UI, see history", async ({ page }) => {
     const unique = Date.now();
@@ -20,35 +18,34 @@ test.describe("Role Intelligence", () => {
 
     await page.goto("/");
 
-    // Sign up and create a role directly via the real API (same as a
-    // recruiter would via the UI's own signup/create-role forms — this
-    // just skips re-testing those existing, already-covered flows).
-    const signup = await page.evaluate(
-      async ({ apiBase, email }) => {
-        const res = await fetch(`${apiBase}/auth/signup`, {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, password: "test-password-123" }),
-        });
-        return res.status;
-      },
-      { apiBase: API_BASE, email },
-    );
+    // Sign up and create a role via the app's own /api/* proxy path (the
+    // same relative URL lib/api.ts's API_BASE uses — see next.config.ts's
+    // rewrite) rather than a direct cross-origin call to the backend
+    // port. This is deliberate, not just a shortcut past the UI's own
+    // signup/create-role forms: it's what actually proves the proxy
+    // makes the session cookie first-party (see next.config.ts's and
+    // lib/api.ts's comments) — a direct cross-origin call here would
+    // still work via GTM_COOKIE_SAMESITE=none and mask a broken rewrite.
+    const signup = await page.evaluate(async (email) => {
+      const res = await fetch(`/api/auth/signup`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password: "test-password-123" }),
+      });
+      return res.status;
+    }, email);
     expect(signup).toBe(200);
 
-    const createJob = await page.evaluate(
-      async ({ apiBase, roleId }) => {
-        const res = await fetch(`${apiBase}/jobs`, {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title: "E2E AE Role", role_id: roleId }),
-        });
-        return res.status;
-      },
-      { apiBase: API_BASE, roleId },
-    );
+    const createJob = await page.evaluate(async (roleId) => {
+      const res = await fetch(`/api/jobs`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "E2E AE Role", role_id: roleId }),
+      });
+      return res.status;
+    }, roleId);
     expect(createJob).toBe(200);
 
     await page.goto(`/jobs/${roleId}`);

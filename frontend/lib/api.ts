@@ -7,7 +7,12 @@
  * same one-line, no-jargon error the CLI shows instead of a stack trace.
  */
 
-export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+// Always same-origin, relative — next.config.ts's rewrite forwards
+// /api/* to BACKEND_URL server-side, so the browser never makes a
+// cross-site request to the backend at all. That's what makes the
+// session cookie first-party (see next.config.ts's comment on why a
+// split-host deployment needs this instead of just CORS + SameSite=None).
+export const API_BASE = "/api";
 
 export class ApiError extends Error {
   status: number;
