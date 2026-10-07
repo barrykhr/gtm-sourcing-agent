@@ -10,7 +10,7 @@ stage code never hand-parses free text.
 
 import logging
 import os
-from typing import TypeVar
+from typing import Callable, TypeVar
 
 import anthropic
 from jinja2 import Environment, FileSystemLoader
@@ -63,6 +63,7 @@ def generate(
     model: str = DEFAULT_MODEL,
     max_tokens: int = DEFAULT_MAX_TOKENS,
     stage: str = "",
+    on_usage: Callable[[anthropic.types.Usage], None] | None = None,
 ) -> ModelT:
     """Call Claude with `prompt`, enforce output against `output_model` via
     structured outputs, and return a validated instance.
@@ -71,6 +72,12 @@ def generate(
     alongside token usage so a recruiter/operator can see per-stage API
     spend — see docs/implementation-plan.md Phase 6. It has no effect on
     the request itself.
+
+    `on_usage`, if given, is called with the response's token-usage object
+    before returning — additive-only hook (every existing caller omits it
+    and behaves exactly as before) so a caller that needs to *persist*
+    usage (Feature 01's agent_observability.py) doesn't require widening
+    this function's return type for every other caller in the codebase.
 
     Raises RuntimeError with a clear cause for auth/permission/rate-limit/
     request errors, or if Claude declines the request (`stop_reason ==
@@ -116,4 +123,6 @@ def generate(
         "generate done stage=%s model=%s input_tokens=%s output_tokens=%s",
         stage or "?", model, usage.input_tokens, usage.output_tokens,
     )
+    if on_usage is not None:
+        on_usage(usage)
     return response.parsed_output

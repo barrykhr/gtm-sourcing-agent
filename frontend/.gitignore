@@ -41,3 +41,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Playwright (first committed E2E suite — see playwright.config.ts)
+/.e2e-data/
+/playwright-report/
+/test-results/

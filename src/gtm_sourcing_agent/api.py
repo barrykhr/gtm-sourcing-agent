@@ -23,8 +23,8 @@ from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from . import (
-    auth, db_storage, file_storage, followup_sweep, notifications, orchestrator, pipeline, resume_extraction,
-    task_queue, webhooks,
+    agent_observability, auth, db_storage, file_storage, followup_sweep, notifications, orchestrator, pipeline,
+    resume_extraction, role_intelligence, task_queue, webhooks,
 )
 from .models.funnel import ForecastAssumptions
 from .models.interview_questions import InterviewQuestionHistory
@@ -39,6 +39,7 @@ from .stages import interview_processing as interview_processing_stage
 from .stages import interview_questions as interview_questions_stage
 from .stages import outreach as outreach_stage
 from .stages import prioritization as prioritization_stage
+from .stages import role_intelligence_extraction as role_intelligence_extraction_stage
 from .stages import screening as screening_stage
 from .stages import search_strategy as search_strategy_stage
 from .stages import talent_map as talent_map_stage
@@ -461,6 +462,37 @@ class ChatRequest(BaseModel):
 
 class ChatConfirmRequest(BaseModel):
     approve: bool
+
+
+class RoleIntelligenceExtractRequest(BaseModel):
+    jd_text: str
+
+
+class RequirementCreateRequest(BaseModel):
+    category: str
+    value: str
+    priority: str
+    evidence_level: str = "NOT_STATED"
+    source_span: str = ""
+    confidence: float | None = None
+
+
+class RequirementUpdateRequest(BaseModel):
+    category: str | None = None
+    value: str | None = None
+    priority: str | None = None
+    evidence_level: str | None = None
+    source_span: str | None = None
+    confidence: float | None = None
+
+
+class IcpUpdateRequest(BaseModel):
+    fields: dict[str, Any]
+
+
+class AmbiguityResolveRequest(BaseModel):
+    resolution_note: str
+    new_requirement: dict[str, Any] | None = None
 
 
 class CloneJobRequest(BaseModel):
@@ -989,6 +1021,16 @@ def _run_workload_planning(role_id: str | None, args: dict[str, Any]) -> dict[st
     ).model_dump()
 
 
+def _run_role_intelligence_extraction(role_id: str, args: dict[str, Any]) -> dict[str, Any]:
+    return role_intelligence_extraction_stage.run(
+        role_id, args["jd_text"], user_email=args.get("user_email", ""),
+    )
+
+
+def _run_role_intelligence_search_strategy(role_id: str, args: dict[str, Any]) -> dict[str, Any]:
+    return role_intelligence.generate_search_strategy(role_id, user_email=args.get("user_email", ""))
+
+
 for _kind, _fn in [
     ("intake", _run_intake),
     ("calibrate", _run_calibrate),
@@ -1006,6 +1048,8 @@ for _kind, _fn in [
     ("analyze_interview", _run_analyze_interview),
     ("ask_interview_question", _run_ask_interview_question),
     ("workload_planning", _run_workload_planning),
+    ("role_intelligence_extraction", _run_role_intelligence_extraction),
+    ("role_intelligence_search_strategy", _run_role_intelligence_search_strategy),
 ]:
     task_queue.register_runner(_kind, _fn)
 
@@ -1847,13 +1891,27 @@ def confirm_chat_proposal(role_id: str, body: ChatConfirmRequest, request: Reque
     if not pending:
         raise HTTPException(status_code=400, detail="no pending proposal for this job")
 
+    # "kind" distinguishes which family of mutation this proposal is —
+    # the original hiring-profile-edit proposal (pre-Feature-01, no
+    # "kind" key) vs. one of role_intelligence's propose_* tools (see
+    # role_intelligence.APPLY_BY_KIND). Both are applied here, never by
+    # the model directly — see orchestrator.py's module docstring.
+    kind = pending.get("kind", "hiring_profile_edit")
+    result: Any = None
     if body.approve:
-        icp = orchestrator.apply_hiring_profile_edit(
-            role_id, pending["field"], pending["action"], pending["value"], storage_backend=db_storage
-        )
+        if kind == "hiring_profile_edit":
+            result = orchestrator.apply_hiring_profile_edit(
+                role_id, pending["field"], pending["action"], pending["value"], storage_backend=db_storage
+            )
+        else:
+            apply_fn = role_intelligence.APPLY_BY_KIND.get(kind)
+            if apply_fn is None:
+                raise HTTPException(status_code=400, detail=f"unknown proposal kind '{kind}'")
+            changed_by = request.state.user["email"]
+            result = _run_stage(apply_fn, role_id, pending, changed_by)
         note = f"Applied: {pending['description']}"
     else:
-        icp = state.get("icp")
+        result = state.get("icp") if kind == "hiring_profile_edit" else None
         note = f"Declined: {pending['description']}"
 
     db_storage.merge_section(role_id, "chat_pending", None)
@@ -1862,4 +1920,131 @@ def confirm_chat_proposal(role_id: str, body: ChatConfirmRequest, request: Reque
     db_storage.merge_section(role_id, "chat_history", history)
     _log(request, role_id, "AI chat proposal " + ("applied" if body.approve else "declined"), detail=pending["description"])
 
-    return {"applied": body.approve, "message": note, "icp": icp}
+    response = {"applied": body.approve, "message": note}
+    if kind == "hiring_profile_edit":
+        response["icp"] = result
+    else:
+        response["result"] = result
+    return response
+
+
+# ── Feature 01: Role Intelligence ───────────────────────────────────────
+# A direct REST CRUD surface over role_intelligence.py, distinct from the
+# chat routes above: a recruiter editing a field in the Role Intelligence
+# UI has already given explicit, unambiguous intent (the same way
+# PATCH /jobs/{role_id}/icp/criteria applies directly, no confirm step),
+# so these routes call apply_* directly. Only a *chat-originated* edit
+# (ambiguous natural language) goes through propose/confirm — see
+# orchestrator.py's module docstring and TALYN_V2_ARCHITECTURE.md §6.
+
+
+@app.post("/jobs/{role_id}/role-intelligence/extract", status_code=202)
+def extract_role_intelligence(role_id: str, body: RoleIntelligenceExtractRequest, request: Request) -> dict[str, Any]:
+    if not db_storage.job_exists(role_id):
+        raise HTTPException(status_code=404, detail=f"job '{role_id}' not found")
+    _log(request, role_id, "requested role intelligence extraction")
+    return task_queue.enqueue(
+        role_id, "role_intelligence_extraction",
+        {"jd_text": body.jd_text, "user_email": request.state.user["email"]},
+    )
+
+
+@app.get("/jobs/{role_id}/role-intelligence/role")
+def get_role_intelligence_role(role_id: str) -> dict[str, Any]:
+    return _run_stage(role_intelligence.get_role, role_id)
+
+
+@app.get("/jobs/{role_id}/role-intelligence/requirements")
+def list_role_requirements(role_id: str) -> list[dict[str, Any]]:
+    return _run_stage(role_intelligence.get_requirements, role_id)
+
+
+@app.post("/jobs/{role_id}/role-intelligence/requirements")
+def create_role_requirement(role_id: str, body: RequirementCreateRequest, request: Request) -> dict[str, Any]:
+    result = _run_stage(
+        role_intelligence.apply_add_requirement, role_id,
+        category=body.category, value=body.value, priority=body.priority,
+        evidence_level=body.evidence_level, source_span=body.source_span, confidence=body.confidence,
+        changed_by=request.state.user["email"],
+    )
+    _log(request, role_id, "added role requirement", detail=body.value)
+    return result
+
+
+@app.patch("/jobs/{role_id}/role-intelligence/requirements/{requirement_id}")
+def update_role_requirement(
+    role_id: str, requirement_id: int, body: RequirementUpdateRequest, request: Request
+) -> dict[str, Any]:
+    fields = body.model_dump(exclude_unset=True)
+    result = _run_stage(
+        role_intelligence.apply_update_requirement, role_id, requirement_id,
+        changed_by=request.state.user["email"], **fields,
+    )
+    _log(request, role_id, "updated role requirement", detail=str(requirement_id))
+    return result
+
+
+@app.delete("/jobs/{role_id}/role-intelligence/requirements/{requirement_id}")
+def remove_role_requirement(role_id: str, requirement_id: int, request: Request) -> dict[str, Any]:
+    result = _run_stage(
+        role_intelligence.apply_remove_requirement, role_id, requirement_id,
+        changed_by=request.state.user["email"],
+    )
+    _log(request, role_id, "removed role requirement", detail=str(requirement_id))
+    return result
+
+
+@app.get("/jobs/{role_id}/role-intelligence/icp")
+def get_role_icp(role_id: str) -> dict[str, Any] | None:
+    return _run_stage(role_intelligence.get_icp, role_id)
+
+
+@app.patch("/jobs/{role_id}/role-intelligence/icp")
+def update_role_icp(role_id: str, body: IcpUpdateRequest, request: Request) -> dict[str, Any]:
+    result = _run_stage(
+        role_intelligence.apply_update_icp, role_id, body.fields, changed_by=request.state.user["email"],
+    )
+    _log(request, role_id, "updated role ICP")
+    return result
+
+
+@app.get("/jobs/{role_id}/role-intelligence/ambiguities")
+def list_role_ambiguities(role_id: str) -> list[dict[str, Any]]:
+    return _run_stage(role_intelligence.get_ambiguities, role_id)
+
+
+@app.post("/jobs/{role_id}/role-intelligence/ambiguities/{ambiguity_id}/resolve")
+def resolve_role_ambiguity(
+    role_id: str, ambiguity_id: int, body: AmbiguityResolveRequest, request: Request
+) -> dict[str, Any]:
+    result = _run_stage(
+        role_intelligence.apply_resolve_ambiguity, role_id, ambiguity_id,
+        resolution_note=body.resolution_note, new_requirement=body.new_requirement,
+        changed_by=request.state.user["email"],
+    )
+    _log(request, role_id, "resolved role ambiguity", detail=str(ambiguity_id))
+    return result
+
+
+@app.post("/jobs/{role_id}/role-intelligence/search-strategy", status_code=202)
+def request_role_search_strategy(role_id: str, request: Request) -> dict[str, Any]:
+    if not db_storage.job_exists(role_id):
+        raise HTTPException(status_code=404, detail=f"job '{role_id}' not found")
+    _log(request, role_id, "requested role intelligence search strategy")
+    return task_queue.enqueue(
+        role_id, "role_intelligence_search_strategy", {"user_email": request.state.user["email"]},
+    )
+
+
+@app.get("/jobs/{role_id}/role-intelligence/history")
+def get_role_intelligence_history(role_id: str) -> list[dict[str, Any]]:
+    return _run_stage(role_intelligence.get_role_history, role_id)
+
+
+@app.get("/jobs/{role_id}/role-intelligence/agent-runs")
+def list_role_agent_runs(role_id: str) -> list[dict[str, Any]]:
+    """Observability (Architecture §5): what Talyn actually did on this
+    role's requirements/ICP/ambiguities/search-strategy, and what it cost."""
+    if not db_storage.job_exists(role_id):
+        raise HTTPException(status_code=404, detail=f"job '{role_id}' not found")
+    return agent_observability.get_agent_runs(role_id)

@@ -77,10 +77,12 @@ import { CommunicationsCard } from "@/components/CommunicationsCard";
 import { InterviewsCard } from "@/components/InterviewsCard";
 import { IntelligenceCard } from "@/components/IntelligenceCard";
 import { CompetencyScorePanel } from "@/components/CompetencyScorePanel";
+import { RoleIntelligencePanel } from "@/components/RoleIntelligencePanel";
 import { useAuth } from "@/lib/auth-context";
 
 const TABS = [
   "Overview",
+  "Role Intelligence",
   "Hiring Intelligence",
   "Interview Questions",
   "Talent Map",
@@ -218,6 +220,7 @@ export default function JobWorkspace() {
       )}
 
       {tab === "Overview" && <OverviewTab job={job} busy={busy} runAction={runAction} />}
+      {tab === "Role Intelligence" && <RoleIntelligencePanel roleId={roleId} />}
       {tab === "Hiring Intelligence" && <HiringProfileTab job={job} busy={busy} runAction={runAction} />}
       {tab === "Interview Questions" && <InterviewQuestionsTab job={job} busy={busy} runAction={runAction} />}
       {tab === "Talent Map" && <TalentMapTab job={job} busy={busy} runAction={runAction} />}

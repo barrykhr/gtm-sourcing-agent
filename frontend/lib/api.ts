@@ -547,6 +547,138 @@ export const runIcp = async (roleId: string) =>
 export const updateIcpCriteria = (roleId: string, mustHave?: string[], niceToHave?: string[]) =>
   patch<Json>(`/jobs/${roleId}/icp/criteria`, { must_have: mustHave, nice_to_have: niceToHave });
 
+// ── Feature 01: Role Intelligence ───────────────────────────────────────
+// A direct REST CRUD surface over role_intelligence.py — see api.py's own
+// "Feature 01" section comment. Edits made here (the UI) apply directly,
+// no confirm step: the recruiter's own explicit form submission already
+// is the confirmation, same as updateIcpCriteria above. Only a *chat*-
+// originated edit (ambiguous natural language) goes through the
+// CopilotPanel's propose/confirm flow.
+
+export type RequirementEvidenceLevel = "CONFIRMED" | "INFERRED" | "NOT_STATED" | "CONFLICTING";
+export type RequirementPriority = "must_have" | "nice_to_have";
+export type RequirementCategory = "skill" | "experience" | "location" | "comp" | "other";
+
+export type RoleRequirement = {
+  id: number;
+  role_id: string;
+  category: RequirementCategory;
+  value: string;
+  priority: RequirementPriority;
+  evidence_level: RequirementEvidenceLevel;
+  source_span: string;
+  confidence: number | null;
+  created_by: string;
+  is_deleted: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type EvidencedField = {
+  value: string;
+  evidence_level: RequirementEvidenceLevel;
+  source_span: string;
+  confidence: number | null;
+};
+
+export type RoleICP = {
+  role_id: string;
+  fields: Record<string, EvidencedField>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type RoleAmbiguity = {
+  id: number;
+  role_id: string;
+  description: string;
+  candidate_resolutions: string[];
+  status: "open" | "resolved";
+  resolution_note: string;
+  resolved_requirement_id: number | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type RoleVersion = {
+  id: number;
+  role_id: string;
+  entity_type: "requirement" | "icp" | "ambiguity";
+  entity_id: number | null;
+  action: "add" | "update" | "remove" | "resolve";
+  before: Json | null;
+  after: Json | null;
+  changed_by: string;
+  reason: string;
+  changed_at: string;
+};
+
+export type AgentRun = {
+  id: string;
+  agent_name: string;
+  status: string;
+  error: string | null;
+  user_email: string;
+  started_at: string;
+  finished_at: string | null;
+  actions: {
+    tool_name: string;
+    input_summary: string;
+    output_summary: string;
+    model: string;
+    input_tokens: number;
+    output_tokens: number;
+    latency_ms: number;
+  }[];
+};
+
+export const extractRoleIntelligence = async (roleId: string, jdText: string) =>
+  waitForTask<Json>(roleId, await post<Task>(`/jobs/${roleId}/role-intelligence/extract`, { jd_text: jdText }));
+
+export const getRoleIntelligenceRole = (roleId: string) => get<Json>(`/jobs/${roleId}/role-intelligence/role`);
+
+export const listRoleRequirements = (roleId: string) =>
+  get<RoleRequirement[]>(`/jobs/${roleId}/role-intelligence/requirements`);
+
+export const createRoleRequirement = (
+  roleId: string,
+  body: {
+    category: RequirementCategory; value: string; priority: RequirementPriority;
+    evidence_level?: RequirementEvidenceLevel; source_span?: string; confidence?: number | null;
+  },
+) => post<RoleRequirement>(`/jobs/${roleId}/role-intelligence/requirements`, body);
+
+export const updateRoleRequirement = (
+  roleId: string, requirementId: number,
+  fields: Partial<Pick<RoleRequirement, "category" | "value" | "priority" | "evidence_level" | "source_span" | "confidence">>,
+) => patch<RoleRequirement>(`/jobs/${roleId}/role-intelligence/requirements/${requirementId}`, fields);
+
+export const removeRoleRequirement = (roleId: string, requirementId: number) =>
+  del<RoleRequirement>(`/jobs/${roleId}/role-intelligence/requirements/${requirementId}`);
+
+export const getRoleIcp = (roleId: string) => get<RoleICP | null>(`/jobs/${roleId}/role-intelligence/icp`);
+
+export const updateRoleIcp = (roleId: string, fields: Record<string, EvidencedField>) =>
+  patch<RoleICP>(`/jobs/${roleId}/role-intelligence/icp`, { fields });
+
+export const listRoleAmbiguities = (roleId: string) =>
+  get<RoleAmbiguity[]>(`/jobs/${roleId}/role-intelligence/ambiguities`);
+
+export const resolveRoleAmbiguity = (
+  roleId: string, ambiguityId: number, resolutionNote: string, newRequirement?: Json | null,
+) =>
+  post<RoleAmbiguity>(`/jobs/${roleId}/role-intelligence/ambiguities/${ambiguityId}/resolve`, {
+    resolution_note: resolutionNote, new_requirement: newRequirement ?? null,
+  });
+
+export const requestRoleSearchStrategy = async (roleId: string) =>
+  waitForTask<Json>(roleId, await post<Task>(`/jobs/${roleId}/role-intelligence/search-strategy`));
+
+export const getRoleIntelligenceHistory = (roleId: string) =>
+  get<RoleVersion[]>(`/jobs/${roleId}/role-intelligence/history`);
+
+export const listRoleAgentRuns = (roleId: string) => get<AgentRun[]>(`/jobs/${roleId}/role-intelligence/agent-runs`);
+
 export const runTalentMap = async (roleId: string) =>
   waitForTask<Json>(roleId, await post<Task>(`/jobs/${roleId}/talent-map`));
 
@@ -1035,13 +1167,26 @@ export const getAttentionNeeded = () => get<AttentionNeeded>("/analytics/attenti
 
 export type ChatMessage = { role: "user" | "assistant"; text: string };
 
+// "kind" distinguishes which family of mutation this is — undefined (or
+// "hiring_profile_edit") is the original field/action/value shape;
+// anything else is one of role_intelligence.APPLY_BY_KIND's Feature 01
+// proposals (requirement_add/update/remove/priority, icp_update,
+// ambiguity_resolve), which carry their own `fields`/`requirement_id`/
+// `ambiguity_id` instead. The panel only ever renders `description`/
+// `impact`, so it doesn't need to know which kind it's looking at.
 export type PendingProposal = {
-  field: string;
-  action: string;
-  value: string;
+  kind?: string;
+  field?: string;
+  action?: string;
+  value?: string;
   description: string;
   impact: string;
   role_id: string;
+  requirement_id?: number;
+  ambiguity_id?: number;
+  fields?: Json;
+  resolution_note?: string;
+  new_requirement?: Json | null;
 };
 
 export const getChat = (roleId: string) =>
@@ -1051,7 +1196,7 @@ export const postChat = (roleId: string, message: string) =>
   post<{ reply: string; pending_proposal: PendingProposal | null }>(`/jobs/${roleId}/chat`, { message });
 
 export const confirmChatProposal = (roleId: string, approve: boolean) =>
-  post<{ applied: boolean; message: string; icp: Json }>(`/jobs/${roleId}/chat/confirm`, { approve });
+  post<{ applied: boolean; message: string; icp?: Json; result?: Json }>(`/jobs/${roleId}/chat/confirm`, { approve });
 
 // ── funnel ─────────────────────────────────────────────────────────────
 

@@ -104,8 +104,8 @@ export function CopilotPanel({
       <div className="flex flex-1 flex-col gap-3 overflow-y-auto px-4 py-3">
         {messages.length === 0 ? (
           <p className="text-sm text-zinc-400">
-            Ask about this job — e.g. &ldquo;who have we got so far?&rdquo; or &ldquo;remove Fabric as a mandatory
-            requirement.&rdquo;
+            Ask about this job, or tell it what to change — e.g. &ldquo;who have we got so far?&rdquo;,
+            &ldquo;make Databricks mandatory,&rdquo; or &ldquo;remove Fabric as a requirement.&rdquo;
           </p>
         ) : (
           messages.map((m, i) => (

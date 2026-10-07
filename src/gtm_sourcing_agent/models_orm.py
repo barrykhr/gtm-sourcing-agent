@@ -475,3 +475,181 @@ class FollowUpQuestion(Base):
     question: Mapped[str] = mapped_column(String, default="")
     rationale: Mapped[str] = mapped_column(String, default="")
     related_competency: Mapped[str] = mapped_column(String, default="")
+
+
+# ── Feature 01: Role Intelligence (TALYN_V2_ARCHITECTURE.md §7) ──────────
+# Purely additive — no table above is altered. `organization_id` is carried
+# on every table below so a future multi-tenancy build doesn't need a
+# second migration to retrofit it (see architecture doc's decision #2), but
+# nothing enforces it yet: it's nullable everywhere and every row created
+# by Feature 01 is attached to the single seeded Organization row.
+
+
+class Organization(Base):
+    """Minimal tenant placeholder. Exactly one row exists today (seeded by
+    this feature's migration, for the app's single existing workspace —
+    see User's docstring on models_orm.py: "not a multi-tenant SaaS").
+    No RBAC, no cross-org isolation, no signup flow — this table exists so
+    role_requirement/role_icp/role_ambiguity/role_version/agent_run below
+    are shaped for multi-tenancy from day one without altering them again
+    once real multi-tenancy is built."""
+
+    __tablename__ = "organizations"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    name: Mapped[str] = mapped_column(String)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+# The single seeded row every Feature 01 record is attached to today.
+DEFAULT_ORGANIZATION_ID = "default"
+
+
+class RoleRequirement(Base):
+    """One extracted or recruiter-added requirement for a role — the
+    granular replacement for the free-text must_have/nice_to_have lists on
+    the `icp` JobSection blob (that blob is untouched; this is additive and
+    specific to Feature 01's Role Intelligence view). Each requirement
+    carries its own evidence, per the master prompt's 4-state vocabulary
+    (CONFIRMED/INFERRED/NOT_STATED/CONFLICTING — see
+    models/role_intelligence.py's RequirementEvidenceLevel) — deliberately
+    a separate vocabulary from candidate.py's 3-state EvidenceLevel rather
+    than widening that one, since changing candidate scoring is out of
+    Feature 01's scope (see TALYN_V2_ARCHITECTURE.md §2, decision #3).
+
+    `source_span` is the literal JD text the requirement was extracted
+    from — required whenever evidence_level is CONFIRMED, empty for a
+    requirement that's INFERRED/NOT_STATED/recruiter-added, never a
+    fabricated quote. `is_deleted` is a soft delete (not a hard delete) so
+    role_version's before/after snapshots stay reconstructable."""
+
+    __tablename__ = "role_requirements"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    role_id: Mapped[str] = mapped_column(ForeignKey("jobs.role_id"))
+    organization_id: Mapped[str | None] = mapped_column(ForeignKey("organizations.id"), default=None)
+    category: Mapped[str] = mapped_column(String, default="other")  # skill | experience | location | comp | other
+    value: Mapped[str] = mapped_column(String)
+    priority: Mapped[str] = mapped_column(String, default="nice_to_have")  # must_have | nice_to_have
+    evidence_level: Mapped[str] = mapped_column(String, default="NOT_STATED")
+    source_span: Mapped[str] = mapped_column(String, default="")
+    confidence: Mapped[float | None] = mapped_column(Float, default=None)
+    created_by: Mapped[str] = mapped_column(String, default="ai")  # "ai" | a user's email
+    is_deleted: Mapped[bool] = mapped_column(default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
+
+
+class RoleICP(Base):
+    """One role's Ideal Candidate Profile, Feature 01 shape: unlike
+    icp.py's IdealCandidateProfile (a flat, non-evidenced pydantic model
+    persisted as a JobSection blob), `fields` here holds the same kind of
+    summary (company profile, candidate persona, comp band, etc.) but
+    each field is `{value, evidence_level, source_span, confidence}` —
+    evidenced, per the master prompt's ask. One row per role_id (enforced
+    by the unique constraint), created on first extraction and updated in
+    place thereafter — the history of those updates lives in
+    RoleVersion, not in this row."""
+
+    __tablename__ = "role_icps"
+    __table_args__ = (UniqueConstraint("role_id", name="uq_role_icp"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    role_id: Mapped[str] = mapped_column(ForeignKey("jobs.role_id"))
+    organization_id: Mapped[str | None] = mapped_column(ForeignKey("organizations.id"), default=None)
+    fields: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
+
+
+class RoleAmbiguity(Base):
+    """A contradiction or gap the extraction stage couldn't resolve on its
+    own (e.g. the JD says both "5+ years required" and "open to junior
+    candidates") — surfaced to the recruiter rather than silently guessed,
+    same discipline as JobDescription.contradictions but tracked as a
+    resolvable record instead of a static list. `candidate_resolutions` is
+    the extraction stage's own suggested ways to resolve it (free text);
+    `resolved_requirement_id` is set when resolving it produced or updated
+    a specific RoleRequirement."""
+
+    __tablename__ = "role_ambiguities"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    role_id: Mapped[str] = mapped_column(ForeignKey("jobs.role_id"))
+    organization_id: Mapped[str | None] = mapped_column(ForeignKey("organizations.id"), default=None)
+    description: Mapped[str] = mapped_column(String)
+    candidate_resolutions: Mapped[list] = mapped_column(JSON, default=list)
+    status: Mapped[str] = mapped_column(String, default="open")  # open | resolved
+    resolution_note: Mapped[str] = mapped_column(String, default="")
+    resolved_requirement_id: Mapped[int | None] = mapped_column(ForeignKey("role_requirements.id"), default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
+
+
+class RoleVersion(Base):
+    """Role versioning (TALYN_V2_ARCHITECTURE.md §7): before/after/who/
+    when/why for every mutation Feature 01's typed tools make to a role's
+    requirements/ICP/ambiguities. `before`/`after` are JSON snapshots of
+    just the thing that changed (one requirement's fields, or the ICP's
+    `fields` dict), not a whole-role snapshot — keeps rows small and the
+    diff unambiguous. `changed_by` is "ai" when a tool applied the change
+    autonomously (none do, in Feature 01 — every mutation is
+    propose/confirm) or a user's email when a recruiter confirmed it."""
+
+    __tablename__ = "role_versions"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    role_id: Mapped[str] = mapped_column(ForeignKey("jobs.role_id"))
+    organization_id: Mapped[str | None] = mapped_column(ForeignKey("organizations.id"), default=None)
+    entity_type: Mapped[str] = mapped_column(String)  # requirement | icp | ambiguity
+    entity_id: Mapped[int | None] = mapped_column(default=None)
+    action: Mapped[str] = mapped_column(String)  # add | update | remove | resolve
+    before: Mapped[dict | None] = mapped_column(JSON, default=None)
+    after: Mapped[dict | None] = mapped_column(JSON, default=None)
+    changed_by: Mapped[str] = mapped_column(String, default="ai")
+    reason: Mapped[str] = mapped_column(String, default="")
+    changed_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+
+
+class AgentRun(Base):
+    """One orchestrator.py tool-use turn — the observability gap flagged in
+    TALYN_V2_AUDIT.md §5/§9 (today, token usage is logged via
+    `logger.info` only, at llm_client.py:116, never persisted). Feature 01
+    is the first place this gets written to a real table, scoped to the
+    role-intelligence tools only, not a retrofit onto every existing
+    stage call."""
+
+    __tablename__ = "agent_runs"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    organization_id: Mapped[str | None] = mapped_column(ForeignKey("organizations.id"), default=None)
+    user_email: Mapped[str] = mapped_column(String, default="")
+    role_id: Mapped[str | None] = mapped_column(ForeignKey("jobs.role_id"), default=None)
+    agent_name: Mapped[str] = mapped_column(String, default="role_intelligence")
+    status: Mapped[str] = mapped_column(String, default="running")  # running | succeeded | failed
+    error: Mapped[str | None] = mapped_column(String, default=None)
+    started_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
+
+
+class AgentAction(Base):
+    """One tool call within an AgentRun — model, tokens, latency, and a
+    short input/output summary (never the raw JD/requirement text, to
+    keep this table small; the real data lives in RoleRequirement/
+    RoleICP/RoleVersion). This is what lets Feature 01 answer "what did
+    Talyn actually do, and what did it cost" per-role, without yet
+    building the full Sentry/OpenTelemetry/PostHog pipeline the master
+    prompt describes as later work."""
+
+    __tablename__ = "agent_actions"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    agent_run_id: Mapped[str] = mapped_column(ForeignKey("agent_runs.id"))
+    tool_name: Mapped[str] = mapped_column(String)
+    input_summary: Mapped[str] = mapped_column(String, default="")
+    output_summary: Mapped[str] = mapped_column(String, default="")
+    model: Mapped[str] = mapped_column(String, default="")
+    input_tokens: Mapped[int] = mapped_column(default=0)
+    output_tokens: Mapped[int] = mapped_column(default=0)
+    latency_ms: Mapped[float] = mapped_column(default=0.0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
