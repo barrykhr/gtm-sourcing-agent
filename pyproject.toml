@@ -22,6 +22,11 @@ dependencies = [
     "pypdf>=4.0",  # resume PDF text extraction (Phase 8)
     "python-docx>=1.1",  # resume DOCX text extraction (Phase 8)
     "psycopg2-binary>=2.9",  # Postgres driver, used when DATABASE_URL is set (db.py)
+    "psycopg[binary]>=3.1",  # some managed Postgres providers (Render included) now hand out
+                              # DATABASE_URL using the postgresql+psycopg:// (v3) driver scheme
+                              # rather than bare postgresql://, which SQLAlchemy resolves to this
+                              # package, not psycopg2-binary above -- both are kept installed since
+                              # which scheme a given DATABASE_URL uses isn't under this app's control
     "google-auth>=2.28",  # verifies Google Identity Services sign-in tokens (auth.py)
     "requests>=2.31",  # google.auth.transport.requests (used by google-auth above) needs
                         # this itself -- not pulled in automatically, and easy to miss in
