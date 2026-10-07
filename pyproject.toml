@@ -10,6 +10,11 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "anthropic>=1.1.0",  # needs client.messages.parse() structured-output support
+    "openai>=1.50",  # alternate LLM provider (llm_client.py, GTM_LLM_PROVIDER=openai) --
+                      # needs client.chat.completions.parse() structured-output support.
+                      # Always installed regardless of which provider is actually configured,
+                      # same "both drivers installed, env var picks" reasoning as psycopg/
+                      # psycopg2-binary above.
     "pydantic>=2.7",
     "typer>=0.12",
     "jinja2>=3.1",
